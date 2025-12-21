@@ -1,0 +1,6 @@
+.env
+*.db
+*.sqlite
+activations.db
+README.md
+.env.example
