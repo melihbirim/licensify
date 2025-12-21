@@ -66,7 +66,7 @@ Most open-source licensing solutions focus *only* on license verification. Licen
 | **Framework Specific** | ❌ Standalone | ❌ Standalone | ❌ Standalone | ❌ Standalone | ✅ .NET required |
 | **Database** | SQLite (built-in) | MongoDB required | SQLite | None | None |
 | **Proxy Mode** | 🔜 Planned (issue #1) | ❌ | ❌ | ❌ | ❌ |
-| **License Type** | BSD | Apache 2.0 | MIT | BSD | MIT |
+| **License Type** | AGPL-3.0 | Apache 2.0 | MIT | BSD | MIT |
 
 ### Unique Value Propositions
 
