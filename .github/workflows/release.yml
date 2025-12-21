@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }} make build-all
+      
+      - name: Create release archives
+        run: make release
+      
+      - name: Generate checksums
+        run: make checksums
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          body: |
+            ## Licensify ${{ steps.version.outputs.VERSION }}
+            
+            **The only licensing server that protects your AI API keys.**
+            
+            ### Download for your platform:
+            
+            - **macOS (Apple Silicon)**: `licensify-darwin-arm64.tar.gz`
+            - **macOS (Intel)**: `licensify-darwin-amd64.tar.gz`
+            - **Linux (x64)**: `licensify-linux-amd64.tar.gz`
+            - **Linux (ARM64)**: `licensify-linux-arm64.tar.gz`
+            - **Windows (x64)**: `licensify-windows-amd64.zip`
+            
+            ### Quick Install (macOS/Linux):
+            
+            ```bash
+            # Download and extract
+            curl -L https://github.com/melihbirim/licensify/releases/download/v${{ steps.version.outputs.VERSION }}/licensify-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m).tar.gz | tar xz
+            
+            # Move to PATH
+            sudo mv licensify /usr/local/bin/
+            
+            # Verify
+            licensify --version
+            ```
+            
+            ### What's New
+            
+            See [CHANGELOG.md](https://github.com/melihbirim/licensify/blob/main/CHANGELOG.md) for details.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -44,4 +44,10 @@ Thumbs.db
 tmp/
 temp/
 
+# Build output
+dist/
+build/
+*.tar.gz
+*.zip
+
 *.db
