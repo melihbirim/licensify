@@ -4,6 +4,8 @@
 
 *Community Edition - Self-hosted licensing + API key protection for AI-powered applications.*
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 ## The Problem
 
 You're building an AI-powered CLI tool, desktop app, or browser extension. You have two critical problems:

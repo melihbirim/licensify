@@ -1,0 +1,42 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+Copyright (C) 2025 Melih Birim
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+ADDITIONAL PERMISSIONS AND CLARIFICATIONS:
+
+1. Self-Hosting: You may run this software on your own infrastructure
+   without any restrictions.
+
+2. Modifications: If you modify this software and offer it as a network
+   service to others, you MUST make your modified source code available
+   under the same AGPL-3.0 license.
+
+3. Commercial SaaS: Running a commercial hosted version requires making
+   all modifications available under AGPL-3.0. This ensures competitive
+   SaaS providers cannot keep improvements proprietary.
+
+4. Internal Use: Companies can use and modify this software internally
+   without publishing changes, as long as it's not offered as a service
+   to external users.
+
+---
+
+For the complete AGPL-3.0 license text, see:
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+For commercial licensing inquiries (if you need to keep modifications private),
+contact: melih@birim.one
