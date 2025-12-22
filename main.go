@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ed25519"
@@ -13,13 +14,16 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,15 +33,69 @@ const (
 )
 
 var (
-	db          *sql.DB
-	privateKey  ed25519.PrivateKey
+	db           *sql.DB
+	privateKey   ed25519.PrivateKey
 	isPostgresDB bool // Track database type
 
 	// Build information (set via ldflags)
 	Version   = "dev"
 	GitCommit = "unknown"
 	BuildTime = "unknown"
+
+	// Rate limiting
+	ipLimiters   = make(map[string]*rate.Limiter)
+	ipLimitersMu sync.RWMutex
 )
+
+// sqlPlaceholder returns the correct SQL placeholder for the database type
+func sqlPlaceholder(n int) string {
+	if isPostgresDB {
+		return fmt.Sprintf("$%d", n)
+	}
+	return "?"
+}
+
+// getIPLimiter returns rate limiter for IP address
+func getIPLimiter(ip string) *rate.Limiter {
+	ipLimitersMu.RLock()
+	limiter, exists := ipLimiters[ip]
+	ipLimitersMu.RUnlock()
+
+	if !exists {
+		ipLimitersMu.Lock()
+		limiter = rate.NewLimiter(rate.Limit(10), 20) // 10 req/sec, burst 20
+		ipLimiters[ip] = limiter
+		ipLimitersMu.Unlock()
+	}
+
+	return limiter
+}
+
+// rateLimitMiddleware enforces per-IP rate limiting
+func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr // Fallback if port parsing fails
+		}
+
+		// Check X-Forwarded-For header for proxied requests
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			ip = strings.TrimSpace(parts[0])
+		}
+
+		limiter := getIPLimiter(ip)
+		if !limiter.Allow() {
+			w.Header().Set("Retry-After", "1")
+			sendError(w, "Too many requests from this IP", http.StatusTooManyRequests)
+			log.Printf("Rate limit exceeded for IP: %s", ip)
+			return
+		}
+
+		next(w, r)
+	}
+}
 
 // Config represents server configuration
 type Config struct {
@@ -154,7 +212,7 @@ type DecryptedData struct {
 
 func loadConfig() *Config {
 	proxyMode := getEnv("PROXY_MODE", "false") == "true"
-	
+
 	return &Config{
 		Port:            getEnv("PORT", DefaultPort),
 		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
@@ -428,10 +486,10 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 		// Verify code
 		var storedCode string
 		var expiresAtStr string
-		err := db.QueryRow(`
+		err := db.QueryRow(fmt.Sprintf(`
 			SELECT code, expires_at FROM verification_codes 
-			WHERE email = ?
-		`, req.Email).Scan(&storedCode, &expiresAtStr)
+			WHERE email = %s
+		`, sqlPlaceholder(1)), req.Email).Scan(&storedCode, &expiresAtStr)
 
 		if err == sql.ErrNoRows {
 			sendError(w, "No verification code found for this email", http.StatusNotFound)
@@ -455,7 +513,7 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Verification attempt: email=%s, provided=%s, stored=%s, match=%v", 
+		log.Printf("Verification attempt: email=%s, provided=%s, stored=%s, match=%v",
 			req.Email, req.Code, storedCode, storedCode == req.Code)
 
 		if storedCode != req.Code {
@@ -465,9 +523,9 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 
 		// Check if user already has a license
 		var existingLicense string
-		err = db.QueryRow(`
-			SELECT license_id FROM licenses WHERE customer_email = ?
-		`, req.Email).Scan(&existingLicense)
+		err = db.QueryRow(fmt.Sprintf(`
+			SELECT license_id FROM licenses WHERE customer_email = %s
+		`, sqlPlaceholder(1)), req.Email).Scan(&existingLicense)
 
 		if err == nil {
 			// User already has a license
@@ -487,12 +545,12 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 		licenseKey := generateLicenseKey()
 		expiresAtLicense := time.Now().AddDate(0, 1, 0) // 1 month for free tier
 
-		_, err = db.Exec(`
+		_, err = db.Exec(fmt.Sprintf(`
 			INSERT INTO licenses (
 license_id, customer_name, customer_email, tier, 
 expires_at, daily_limit, monthly_limit, max_activations, active
-) VALUES (?, ?, ?, 'free', ?, 10, 10, 3, 1)
-		`, licenseKey, req.Email, req.Email, expiresAtLicense)
+) VALUES (%s, %s, %s, 'free', %s, 10, 10, 3, 1)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)), licenseKey, req.Email, req.Email, expiresAtLicense)
 
 		if err != nil {
 			log.Printf("Failed to create license: %v", err)
@@ -501,7 +559,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active
 		}
 
 		// Delete verification code
-		db.Exec("DELETE FROM verification_codes WHERE email = ?", req.Email)
+		db.Exec(fmt.Sprintf("DELETE FROM verification_codes WHERE email = %s", sqlPlaceholder(1)), req.Email)
 
 		// Send license email
 		if err := sendLicenseEmail(resendAPIKey, fromEmail, req.Email, licenseKey, "free", 10); err != nil {
@@ -534,27 +592,38 @@ func generateProxyKey() (string, error) {
 
 // storeProxyKey saves the proxy key mapping
 func storeProxyKey(proxyKey, licenseID, hardwareID string) error {
-	// Delete existing proxy key for this license+hardware (if any)
-	_, err := db.Exec(`DELETE FROM proxy_keys WHERE license_id = $1 AND hardware_id = $2`, licenseID, hardwareID)
+	// Use transaction to ensure atomicity
+	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	
+	defer tx.Rollback()
+
+	// Delete existing proxy key for this license+hardware (if any)
+	_, err = tx.Exec(fmt.Sprintf(`DELETE FROM proxy_keys WHERE license_id = %s AND hardware_id = %s`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, hardwareID)
+	if err != nil {
+		return fmt.Errorf("failed to delete old proxy key: %w", err)
+	}
+
 	// Insert new proxy key
-	_, err = db.Exec(`
+	_, err = tx.Exec(fmt.Sprintf(`
 		INSERT INTO proxy_keys (proxy_key, license_id, hardware_id)
-		VALUES ($1, $2, $3)
-	`, proxyKey, licenseID, hardwareID)
-	return err
+		VALUES (%s, %s, %s)
+	`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), proxyKey, licenseID, hardwareID)
+	if err != nil {
+		return fmt.Errorf("failed to insert proxy key: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // validateProxyKey checks if proxy key is valid and returns license info
 func validateProxyKey(proxyKey string) (licenseID, hardwareID string, err error) {
-	err = db.QueryRow(`
+	err = db.QueryRow(fmt.Sprintf(`
 		SELECT license_id, hardware_id 
 		FROM proxy_keys 
-		WHERE proxy_key = $1
-	`, proxyKey).Scan(&licenseID, &hardwareID)
+		WHERE proxy_key = %s
+	`, sqlPlaceholder(1)), proxyKey).Scan(&licenseID, &hardwareID)
 	return
 }
 
@@ -737,12 +806,12 @@ func handleUsageReport() http.HandlerFunc {
 		recordCheckIn(req.LicenseKey)
 
 		// Update usage
-		_, err = db.Exec(`
+		_, err = db.Exec(fmt.Sprintf(`
 INSERT INTO daily_usage (license_id, date, scans, hardware_id) 
-VALUES (?, ?, ?, ?)
+VALUES (%s, %s, %s, %s)
 ON CONFLICT(license_id, date) DO UPDATE SET 
 scans = scans + excluded.scans
-`, req.LicenseKey, req.Date, req.Scans, req.HardwareID)
+`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)), req.LicenseKey, req.Date, req.Scans, req.HardwareID)
 
 		if err != nil {
 			log.Printf("Failed to record usage: %v", err)
@@ -771,11 +840,11 @@ func getLicense(licenseID string) (*LicenseData, error) {
 	var license LicenseData
 	license.LicenseID = licenseID
 
-	err := db.QueryRow(`
+	err := db.QueryRow(fmt.Sprintf(`
 SELECT customer_name, customer_email, tier, expires_at, 
        daily_limit, monthly_limit, max_activations, active
-FROM licenses WHERE license_id = ?
-`, licenseID).Scan(
+FROM licenses WHERE license_id = %s
+`, sqlPlaceholder(1)), licenseID).Scan(
 		&license.CustomerName,
 		&license.CustomerEmail,
 		&license.Tier,
@@ -795,39 +864,40 @@ FROM licenses WHERE license_id = ?
 
 func getActivationCount(licenseID string) (int, error) {
 	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM activations WHERE license_id = ?", licenseID).Scan(&count)
+	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM activations WHERE license_id = %s", sqlPlaceholder(1)), licenseID).Scan(&count)
 	return count, err
 }
 
 func isHardwareActivated(licenseID, hardwareID string) (bool, error) {
 	var count int
-	err := db.QueryRow(`
+	err := db.QueryRow(fmt.Sprintf(`
 SELECT COUNT(*) FROM activations 
-WHERE license_id = ? AND hardware_id = ?
-`, licenseID, hardwareID).Scan(&count)
+WHERE license_id = %s AND hardware_id = %s
+`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, hardwareID).Scan(&count)
 	return count > 0, err
 }
 
 func recordActivation(licenseID, hardwareID string) error {
-	_, err := db.Exec(`
+	_, err := db.Exec(fmt.Sprintf(`
 INSERT INTO activations (license_id, hardware_id) 
-VALUES (?, ?)
-`, licenseID, hardwareID)
+VALUES (%s, %s)
+`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, hardwareID)
 	return err
 }
 
 func isFreeHardwareAlreadyActive(hardwareID, requestedLicenseID string) bool {
 	var count int
-	err := db.QueryRow(`
+	// Use boolean true for PostgreSQL compatibility, works with SQLite too
+	err := db.QueryRow(fmt.Sprintf(`
 SELECT COUNT(DISTINCT a.license_id) 
 FROM activations a
 JOIN licenses l ON a.license_id = l.license_id
-WHERE a.hardware_id = ? 
+WHERE a.hardware_id = %s 
   AND l.tier = 'free' 
-  AND l.active = 1 
+  AND l.active = true 
   AND l.expires_at > CURRENT_TIMESTAMP
-  AND a.license_id != ?
-`, hardwareID, requestedLicenseID).Scan(&count)
+  AND a.license_id != %s
+`, sqlPlaceholder(1), sqlPlaceholder(2)), hardwareID, requestedLicenseID).Scan(&count)
 
 	if err != nil {
 		log.Printf("Error checking free hardware: %v", err)
@@ -838,28 +908,28 @@ WHERE a.hardware_id = ?
 }
 
 func recordCheckIn(licenseID string) {
-	db.Exec(`
+	db.Exec(fmt.Sprintf(`
 INSERT INTO check_ins (license_id, last_check_in) 
-VALUES (?, CURRENT_TIMESTAMP)
+VALUES (%s, CURRENT_TIMESTAMP)
 ON CONFLICT(license_id) DO UPDATE SET 
 last_check_in = CURRENT_TIMESTAMP
-`, licenseID)
+`, sqlPlaceholder(1)), licenseID)
 }
 
 func getUsage(licenseID, date string) (int, int) {
 	var dailyUsage int
-	db.QueryRow(`
+	db.QueryRow(fmt.Sprintf(`
 SELECT COALESCE(SUM(scans), 0) FROM daily_usage 
-WHERE license_id = ? AND date = ?
-`, licenseID, date).Scan(&dailyUsage)
+WHERE license_id = %s AND date = %s
+`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, date).Scan(&dailyUsage)
 
 	// Monthly usage (current month)
 	var monthlyUsage int
 	yearMonth := date[:7] // YYYY-MM
-	db.QueryRow(`
+	db.QueryRow(fmt.Sprintf(`
 SELECT COALESCE(SUM(scans), 0) FROM daily_usage 
-WHERE license_id = ? AND date LIKE ?
-`, licenseID, yearMonth+"%").Scan(&monthlyUsage)
+WHERE license_id = %s AND date LIKE %s
+`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, yearMonth+"%").Scan(&monthlyUsage)
 
 	return dailyUsage, monthlyUsage
 }
@@ -1087,23 +1157,28 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		// Validate proxy key and get license info
 		licenseKey, hardwareID, err := validateProxyKey(req.ProxyKey)
 		if err != nil {
-			log.Printf("Invalid proxy key: %v", err)
-			sendError(w, "Invalid or expired proxy key", http.StatusUnauthorized)
+			if err == sql.ErrNoRows {
+				log.Printf("Proxy key not found: %s...", req.ProxyKey[:10])
+				sendError(w, "Unauthorized", http.StatusUnauthorized)
+			} else {
+				log.Printf("Database error validating proxy key: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
 		// Check if license exists and is active
 		var licenseID, tier, expiresAtStr string
 		var dailyLimit int64
-		
+
 		if isPostgresDB {
 			// PostgreSQL: use EXTRACT(EPOCH FROM expires_at)
 			var expiresAtUnix int64
-			err := db.QueryRow(`
+			err := db.QueryRow(fmt.Sprintf(`
 				SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
 				FROM licenses 
-				WHERE license_id = $1 AND active = true
-			`, licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+				WHERE license_id = %s AND active = true
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1113,15 +1188,15 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				sendError(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			
+
 			expiresAtStr = time.Unix(expiresAtUnix, 0).Format(time.RFC3339)
 		} else {
 			// SQLite: expires_at is stored as TEXT in RFC3339 format
-			err := db.QueryRow(`
+			err := db.QueryRow(fmt.Sprintf(`
 				SELECT license_id, tier, daily_limit, expires_at
 				FROM licenses 
-				WHERE license_id = $1 AND active = true
-			`, licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
+				WHERE license_id = %s AND active = true
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1147,10 +1222,10 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 
 		// Verify hardware ID is activated
 		var count int
-		err = db.QueryRow(`
+		err = db.QueryRow(fmt.Sprintf(`
 			SELECT COUNT(*) FROM activations 
-			WHERE license_id = $1 AND hardware_id = $2
-		`, licenseID, hardwareID).Scan(&count)
+			WHERE license_id = %s AND hardware_id = %s
+		`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, hardwareID).Scan(&count)
 
 		if err != nil {
 			log.Printf("Database error: %v", err)
@@ -1166,10 +1241,10 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		// Check rate limits
 		today := time.Now().Format("2006-01-02")
 		var currentUsage int
-		err = db.QueryRow(`
+		err = db.QueryRow(fmt.Sprintf(`
 			SELECT scans FROM daily_usage 
-			WHERE license_id = $1 AND date = $2 AND hardware_id = $3
-		`, licenseID, today, hardwareID).Scan(&currentUsage)
+			WHERE license_id = %s AND date = %s AND hardware_id = %s
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID).Scan(&currentUsage)
 
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("Database error checking usage: %v", err)
@@ -1225,9 +1300,9 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			apiURL = "https://api.anthropic.com" + path
 			apiKey = anthropicKey
 			headers = map[string]string{
-				"x-api-key":       apiKey,
+				"x-api-key":         apiKey,
 				"anthropic-version": "2023-06-01",
-				"Content-Type":    "application/json",
+				"Content-Type":      "application/json",
 			}
 
 		default:
@@ -1235,11 +1310,21 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			return
 		}
 
+		// Validate request body size (max 1MB)
+		if len(req.Body) > 1024*1024 {
+			sendError(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel()
+
 		// Forward request to actual API
-		proxyReq, err := http.NewRequest("POST", apiURL, strings.NewReader(string(req.Body)))
+		proxyReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(string(req.Body)))
 		if err != nil {
 			log.Printf("Failed to create proxy request: %v", err)
-			sendError(w, "Failed to create proxy request", http.StatusInternalServerError)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -1248,24 +1333,29 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			proxyReq.Header.Set(key, value)
 		}
 
-		// Execute request
-		client := &http.Client{Timeout: 120 * time.Second}
+		// Execute request with timeout
+		client := &http.Client{Timeout: 60 * time.Second}
 		resp, err := client.Do(proxyReq)
 		if err != nil {
-			log.Printf("Failed to execute proxy request: %v", err)
-			sendError(w, "Failed to connect to API provider", http.StatusBadGateway)
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Printf("Proxy request timeout: %v", err)
+				sendError(w, "Request timeout", http.StatusGatewayTimeout)
+			} else {
+				log.Printf("Failed to execute proxy request: %v", err)
+				sendError(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+			}
 			return
 		}
 		defer resp.Body.Close()
 
 		// Increment usage counter (only on successful requests)
 		if resp.StatusCode == http.StatusOK {
-			_, err = db.Exec(`
+			_, err = db.Exec(fmt.Sprintf(`
 				INSERT INTO daily_usage (license_id, date, scans, hardware_id)
-				VALUES ($1, $2, 1, $3)
+				VALUES (%s, %s, 1, %s)
 				ON CONFLICT (license_id, date)
 				DO UPDATE SET scans = daily_usage.scans + 1
-			`, licenseID, today, hardwareID)
+			`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID)
 
 			if err != nil {
 				log.Printf("Failed to update usage: %v", err)
@@ -1313,16 +1403,16 @@ func main() {
 	}
 	privateKey = ed25519.PrivateKey(privKeyBytes)
 
-	// Setup HTTP routes
+	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
-	http.HandleFunc("/init", handleInit(config.ResendAPIKey, config.FromEmail))
-	http.HandleFunc("/verify", handleVerify(config.ResendAPIKey, config.FromEmail))
-	http.HandleFunc("/activate", handleActivation(config.ProtectedAPIKey, config.ProxyMode))
-	http.HandleFunc("/usage", handleUsageReport())
+	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail)))
+	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail)))
+	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
+	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))
 
 	// Setup proxy routes if proxy mode is enabled
 	if config.ProxyMode {
-		http.HandleFunc("/proxy/", handleProxy(config.OpenAIKey, config.AnthropicKey))
+		http.HandleFunc("/proxy/", rateLimitMiddleware(handleProxy(config.OpenAIKey, config.AnthropicKey)))
 		log.Printf("🔀 Proxy mode: ENABLED")
 		if config.OpenAIKey != "" {
 			log.Printf("   ✓ OpenAI proxy available at /proxy/openai/*")

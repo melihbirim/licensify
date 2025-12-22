@@ -1,6 +1,6 @@
 module github.com/melihbirim/licensify
 
-go 1.21
+go 1.24.0
 
 require (
 	github.com/joho/godotenv v1.5.1
@@ -16,6 +16,7 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sys v0.16.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.41.0 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
