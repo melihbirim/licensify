@@ -121,8 +121,6 @@ DB_PATH=activations.db         # SQLite (development, small scale)
 PROXY_MODE=true OPENAI_API_KEY=sk-xxx ./licensify
 ```
 
-See [PROXY_MODE.md](PROXY_MODE.md) for detailed proxy setup and client examples.
-
 ## API Endpoints
 
 ### Free Tier Flow (Email Verification)
@@ -333,11 +331,6 @@ SELECT * FROM activations WHERE license_id='LIC-...';
 # Deactivate license
 UPDATE licenses SET active=false WHERE license_id='LIC-...';
 ```
-
-## Documentation
-
-- **[PROXY_MODE.md](PROXY_MODE.md)** - Detailed proxy mode setup with client examples
-- **[ROADMAP.md](ROADMAP.md)** - Feature roadmap and planned improvements
 
 ## License
 
