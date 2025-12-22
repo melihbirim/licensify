@@ -21,8 +21,10 @@ RUN go mod verify
 # Copy source code
 COPY . .
 
-# Build the application with CGO enabled for SQLite and inject version info
-RUN CGO_ENABLED=1 go build \
+# Auto-detect git commit and build time
+RUN GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
+    BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
+    CGO_ENABLED=1 go build \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT} -X main.BuildTime=${BUILD_TIME}" \
     -o server main.go
 
