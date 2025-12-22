@@ -29,8 +29,9 @@ const (
 )
 
 var (
-	db         *sql.DB
-	privateKey ed25519.PrivateKey
+	db          *sql.DB
+	privateKey  ed25519.PrivateKey
+	isPostgresDB bool // Track database type
 
 	// Build information (set via ldflags)
 	Version   = "dev"
@@ -178,20 +179,19 @@ func getEnv(key, defaultValue string) string {
 func initDB(dbPath, dbURL string) error {
 	var err error
 	var driverName, dataSource string
-	var isPostgres bool
 
 	// Detect database type
 	if dbURL != "" {
 		// PostgreSQL
 		driverName = "postgres"
 		dataSource = dbURL
-		isPostgres = true
+		isPostgresDB = true
 		log.Printf("📊 Using PostgreSQL database")
 	} else {
 		// SQLite
 		driverName = "sqlite"
 		dataSource = dbPath
-		isPostgres = false
+		isPostgresDB = false
 		log.Printf("📊 Using SQLite database: %s", dbPath)
 	}
 
@@ -207,7 +207,7 @@ func initDB(dbPath, dbURL string) error {
 
 	// Create tables with appropriate syntax
 	var schema string
-	if isPostgres {
+	if isPostgresDB {
 		schema = `
 		CREATE TABLE IF NOT EXISTS licenses (
 			license_id TEXT PRIMARY KEY,
@@ -979,25 +979,53 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		}
 
 		// Check if license exists and is active
-		var licenseID, tier string
-		var dailyLimit, expiresAtUnix int64
-		err := db.QueryRow(`
-			SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
-			FROM licenses 
-			WHERE license_id = $1 AND active = true
-		`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+		var licenseID, tier, expiresAtStr string
+		var dailyLimit int64
+		
+		if isPostgresDB {
+			// PostgreSQL: use EXTRACT(EPOCH FROM expires_at)
+			var expiresAtUnix int64
+			err := db.QueryRow(`
+				SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
+				FROM licenses 
+				WHERE license_id = $1 AND active = true
+			`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
 
-		if err == sql.ErrNoRows {
-			sendError(w, "License not found or inactive", http.StatusUnauthorized)
-			return
-		} else if err != nil {
-			log.Printf("Database error: %v", err)
+			if err == sql.ErrNoRows {
+				sendError(w, "License not found or inactive", http.StatusUnauthorized)
+				return
+			} else if err != nil {
+				log.Printf("Database error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			
+			expiresAtStr = time.Unix(expiresAtUnix, 0).Format(time.RFC3339)
+		} else {
+			// SQLite: expires_at is stored as TEXT in RFC3339 format
+			err := db.QueryRow(`
+				SELECT license_id, tier, daily_limit, expires_at
+				FROM licenses 
+				WHERE license_id = $1 AND active = true
+			`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
+
+			if err == sql.ErrNoRows {
+				sendError(w, "License not found or inactive", http.StatusUnauthorized)
+				return
+			} else if err != nil {
+				log.Printf("Database error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Parse expiration time
+		expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+		if err != nil {
+			log.Printf("Failed to parse expiration time: %v", err)
 			sendError(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-
-		// Check if license expired
-		expiresAt := time.Unix(expiresAtUnix, 0)
 		if time.Now().After(expiresAt) {
 			sendError(w, "License has expired", http.StatusUnauthorized)
 			return
