@@ -253,10 +253,19 @@ func initDB(dbPath, dbURL string) error {
 			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
 		);
 
+		CREATE TABLE IF NOT EXISTS proxy_keys (
+			proxy_key TEXT PRIMARY KEY,
+			license_id TEXT NOT NULL,
+			hardware_id TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
 		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
 		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
 		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
+		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
 		`
 	} else {
 		schema = `
@@ -305,10 +314,19 @@ func initDB(dbPath, dbURL string) error {
 			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
 		);
 
+		CREATE TABLE IF NOT EXISTS proxy_keys (
+			proxy_key TEXT PRIMARY KEY,
+			license_id TEXT NOT NULL,
+			hardware_id TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
 		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
 		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
 		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
+		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
 		`
 	}
 
@@ -495,7 +513,42 @@ expires_at, daily_limit, monthly_limit, max_activations, active
 	}
 }
 
-func handleActivation(protectedAPIKey string) http.HandlerFunc {
+// generateProxyKey creates a unique API key for proxy mode
+func generateProxyKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "px_" + base64.URLEncoding.EncodeToString(b)[:43], nil
+}
+
+// storeProxyKey saves the proxy key mapping
+func storeProxyKey(proxyKey, licenseID, hardwareID string) error {
+	// Delete existing proxy key for this license+hardware (if any)
+	_, err := db.Exec(`DELETE FROM proxy_keys WHERE license_id = $1 AND hardware_id = $2`, licenseID, hardwareID)
+	if err != nil {
+		return err
+	}
+	
+	// Insert new proxy key
+	_, err = db.Exec(`
+		INSERT INTO proxy_keys (proxy_key, license_id, hardware_id)
+		VALUES ($1, $2, $3)
+	`, proxyKey, licenseID, hardwareID)
+	return err
+}
+
+// validateProxyKey checks if proxy key is valid and returns license info
+func validateProxyKey(proxyKey string) (licenseID, hardwareID string, err error) {
+	err = db.QueryRow(`
+		SELECT license_id, hardware_id 
+		FROM proxy_keys 
+		WHERE proxy_key = $1
+	`, proxyKey).Scan(&licenseID, &hardwareID)
+	return
+}
+
+func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -573,36 +626,80 @@ func handleActivation(protectedAPIKey string) http.HandlerFunc {
 		// Record check-in
 		recordCheckIn(req.LicenseKey)
 
-		// Encrypt API key bundle
-		encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
-		if err != nil {
-			log.Printf("Encryption error: %v", err)
-			sendError(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+		// Generate response based on proxy mode
+		var resp ActivationResponse
+		if proxyMode {
+			// Generate and store proxy key
+			proxyKey, err := generateProxyKey()
+			if err != nil {
+				log.Printf("Error generating proxy key: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 
-		// Send response
-		resp := ActivationResponse{
-			Success:         true,
-			CustomerName:    license.CustomerName,
-			ExpiresAt:       license.ExpiresAt,
-			Tier:            license.Tier,
-			EncryptedAPIKey: encryptedData,
-			IV:              iv,
-			Limits: struct {
-				DailyLimit     int `json:"daily_limit"`
-				MonthlyLimit   int `json:"monthly_limit"`
-				MaxActivations int `json:"max_activations"`
-			}{
-				DailyLimit:     license.Limits.DailyLimit,
-				MonthlyLimit:   license.Limits.MonthlyLimit,
-				MaxActivations: license.Limits.MaxActivations,
-			},
+			if err := storeProxyKey(proxyKey, req.LicenseKey, req.HardwareID); err != nil {
+				log.Printf("Error storing proxy key: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			// Encrypt the proxy key for the client
+			encryptedData, iv, err := encryptAPIKeyBundle(proxyKey, license, req.LicenseKey, req.HardwareID)
+			if err != nil {
+				log.Printf("Encryption error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			resp = ActivationResponse{
+				Success:         true,
+				CustomerName:    license.CustomerName,
+				ExpiresAt:       license.ExpiresAt,
+				Tier:            license.Tier,
+				EncryptedAPIKey: encryptedData,
+				IV:              iv,
+				Limits: struct {
+					DailyLimit     int `json:"daily_limit"`
+					MonthlyLimit   int `json:"monthly_limit"`
+					MaxActivations int `json:"max_activations"`
+				}{
+					DailyLimit:     license.Limits.DailyLimit,
+					MonthlyLimit:   license.Limits.MonthlyLimit,
+					MaxActivations: license.Limits.MaxActivations,
+				},
+			}
+			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", req.LicenseKey, proxyKey[:10])
+		} else {
+			// Normal mode: encrypt the protected API key
+			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
+			if err != nil {
+				log.Printf("Encryption error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			resp = ActivationResponse{
+				Success:         true,
+				CustomerName:    license.CustomerName,
+				ExpiresAt:       license.ExpiresAt,
+				Tier:            license.Tier,
+				EncryptedAPIKey: encryptedData,
+				IV:              iv,
+				Limits: struct {
+					DailyLimit     int `json:"daily_limit"`
+					MonthlyLimit   int `json:"monthly_limit"`
+					MaxActivations int `json:"max_activations"`
+				}{
+					DailyLimit:     license.Limits.DailyLimit,
+					MonthlyLimit:   license.Limits.MonthlyLimit,
+					MaxActivations: license.Limits.MaxActivations,
+				},
+			}
+			log.Printf("✅ Activation successful for %s", req.LicenseKey)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-		log.Printf("✅ Activation successful for %s", req.LicenseKey)
 	}
 }
 
@@ -952,10 +1049,9 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 
 // ProxyRequest handles proxying to external APIs
 type ProxyRequest struct {
-	LicenseKey string          `json:"license_key"`
-	HardwareID string          `json:"hardware_id"`
-	Provider   string          `json:"provider"` // "openai" or "anthropic"
-	Body       json.RawMessage `json:"body"`     // Original API request body
+	ProxyKey string          `json:"proxy_key"` // Generated proxy key from activation
+	Provider string          `json:"provider"`  // "openai" or "anthropic"
+	Body     json.RawMessage `json:"body"`      // Original API request body
 }
 
 // handleProxy forwards requests to external APIs while validating license and rate limits
@@ -972,9 +1068,17 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			return
 		}
 
-		// Validate license key format
-		if !strings.HasPrefix(req.LicenseKey, "LIC-") {
-			sendError(w, "Invalid license key format", http.StatusBadRequest)
+		// Validate proxy key format
+		if !strings.HasPrefix(req.ProxyKey, "px_") {
+			sendError(w, "Invalid proxy key format", http.StatusBadRequest)
+			return
+		}
+
+		// Validate proxy key and get license info
+		licenseKey, hardwareID, err := validateProxyKey(req.ProxyKey)
+		if err != nil {
+			log.Printf("Invalid proxy key: %v", err)
+			sendError(w, "Invalid or expired proxy key", http.StatusUnauthorized)
 			return
 		}
 
@@ -989,7 +1093,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
 				FROM licenses 
 				WHERE license_id = $1 AND active = true
-			`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+			`, licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1007,7 +1111,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				SELECT license_id, tier, daily_limit, expires_at
 				FROM licenses 
 				WHERE license_id = $1 AND active = true
-			`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
+			`, licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1036,7 +1140,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		err = db.QueryRow(`
 			SELECT COUNT(*) FROM activations 
 			WHERE license_id = $1 AND hardware_id = $2
-		`, licenseID, req.HardwareID).Scan(&count)
+		`, licenseID, hardwareID).Scan(&count)
 
 		if err != nil {
 			log.Printf("Database error: %v", err)
@@ -1055,7 +1159,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		err = db.QueryRow(`
 			SELECT scans FROM daily_usage 
 			WHERE license_id = $1 AND date = $2 AND hardware_id = $3
-		`, licenseID, today, req.HardwareID).Scan(&currentUsage)
+		`, licenseID, today, hardwareID).Scan(&currentUsage)
 
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("Database error checking usage: %v", err)
@@ -1151,7 +1255,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				VALUES ($1, $2, 1, $3)
 				ON CONFLICT (license_id, date)
 				DO UPDATE SET scans = daily_usage.scans + 1
-			`, licenseID, today, req.HardwareID)
+			`, licenseID, today, hardwareID)
 
 			if err != nil {
 				log.Printf("Failed to update usage: %v", err)
@@ -1203,7 +1307,7 @@ func main() {
 	http.HandleFunc("/health", handleHealth)
 	http.HandleFunc("/init", handleInit(config.ResendAPIKey, config.FromEmail))
 	http.HandleFunc("/verify", handleVerify(config.ResendAPIKey, config.FromEmail))
-	http.HandleFunc("/activate", handleActivation(config.ProtectedAPIKey))
+	http.HandleFunc("/activate", handleActivation(config.ProtectedAPIKey, config.ProxyMode))
 	http.HandleFunc("/usage", handleUsageReport())
 
 	// Setup proxy routes if proxy mode is enabled

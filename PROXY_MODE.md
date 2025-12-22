@@ -1,15 +1,16 @@
 # Proxy Mode - API Key Protection
 
-Proxy mode is an enhanced security feature where Licensify acts as a transparent proxy between your clients and external API providers (OpenAI, Anthropic, etc.). This ensures that **clients never receive the actual API keys**.
+Proxy mode is an enhanced security feature where Licensify acts as a transparent proxy between your clients and external API providers (OpenAI, Anthropic, etc.). Clients receive a **generated proxy key** instead of the actual API keys, which remain securely on the server.
 
 ## Why Use Proxy Mode?
 
 ### Security Benefits
-- 🔒 **API keys never leave the server** - clients can't extract or abuse them
+- 🔒 **API keys never leave the server** - clients receive generated proxy keys instead
+- 🔑 **Unique proxy keys per client** - each activation gets its own secure key
 - 📊 **Server-side usage tracking** - accurate monitoring of API calls
 - 🚦 **Server-side rate limiting** - enforce limits reliably
-- 🔄 **Easy key rotation** - update keys without client updates
-- 🎯 **Multi-tenant support** - one key serves many customers
+- 🔄 **Easy key rotation** - update real API keys without client updates
+- 🎯 **Multi-tenant support** - one API key serves many customers
 
 ### Use Cases
 1. **Desktop/Mobile Apps** - Protect OpenAI/Anthropic keys in distributed apps
@@ -20,19 +21,22 @@ Proxy mode is an enhanced security feature where Licensify acts as a transparent
 ## How It Works
 
 ```
-┌─────────┐         ┌────────────┐         ┌─────────────┐
-│ Client  │ License │ Licensify  │ API Key │   OpenAI    │
-│   App   ├────────>│   Proxy    ├────────>│  Anthropic  │
-└─────────┘         └────────────┘         └─────────────┘
-   Never sees          Validates              Real API
-   API key             & forwards             interaction
+┌─────────┐  Activate  ┌────────────┐              ┌─────────────┐
+│ Client  ├───────────>│ Licensify  │              │   OpenAI    │
+│   App   │<───────────┤   Server   │              │  Anthropic  │
+└────┬────┘ Proxy Key  └──────┬─────┘              └─────────────┘
+     │                         │                            ▲
+     │   Use Proxy Key         │    Real API Key           │
+     └────────────────────────>│───────────────────────────┘
+                               │  Validates & forwards
 ```
 
-1. Client sends request to Licensify with their license key
-2. Licensify validates license and checks rate limits
-3. Request is forwarded to actual API (OpenAI, Anthropic, etc.)
-4. Response is streamed back to client
-5. Usage is tracked server-side
+1. **Activation**: Client activates license, receives encrypted proxy key (`px_xxx`)
+2. **Proxy Request**: Client sends requests with proxy key
+3. **Validation**: Licensify validates proxy key and checks rate limits
+4. **Forwarding**: Request is forwarded to actual API with real API key
+5. **Response**: Response is streamed back to client
+6. **Tracking**: Usage is tracked server-side
 
 ## Configuration
 
@@ -54,17 +58,39 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## API Usage
 
-### Request Format
+### Step 1: Activate License
 
-All proxy requests use the same format:
+When proxy mode is enabled, activation returns an encrypted proxy key instead of the real API key:
+
+```bash
+POST /activate
+Content-Type: application/json
+
+{
+  "license_key": "LIC-xxx",
+  "hardware_id": "hw-123"
+}
+```
+
+Response includes encrypted proxy key:
+```json
+{
+  "success": true,
+  "encrypted_api_key": "...",  // This is the proxy key, NOT the real API key
+  "iv": "..."
+}
+```
+
+### Step 2: Make Proxy Requests
+
+All proxy requests use the proxy key:
 
 ```bash
 POST /proxy/{provider}/{api_path}
 Content-Type: application/json
 
 {
-  "license_key": "LIC-xxx",
-  "hardware_id": "hw-123",
+  "proxy_key": "px_xxx...",  // Use the decrypted proxy key
   "provider": "openai|anthropic",
   "body": {
     // Original API request body
@@ -78,8 +104,7 @@ Content-Type: application/json
 curl -X POST "http://localhost:8080/proxy/openai/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
-    "license_key": "LIC-abc123",
-    "hardware_id": "hw-macbook-pro",
+    "proxy_key": "px_abc123xyz...",
     "provider": "openai",
     "body": {
       "model": "gpt-3.5-turbo",
@@ -96,7 +121,7 @@ curl -X POST "http://localhost:8080/proxy/openai/v1/chat/completions" \
 curl -X POST "http://localhost:8080/proxy/anthropic/v1/messages" \
   -H "Content-Type: application/json" \
   -d '{
-    "license_key": "LIC-abc123",
+    "proxy_key": "px_abc123xyz...",
     "hardware_id": "hw-macbook-pro",
     "provider": "anthropic",
     "body": {
@@ -142,19 +167,52 @@ HTTP 429 Too Many Requests
 
 ```python
 import requests
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+import base64
 
 class LicensifyProxy:
-    def __init__(self, server_url, license_key, hardware_id):
+    def __init__(self, server_url):
         self.server_url = server_url
-        self.license_key = license_key
-        self.hardware_id = hardware_id
+        self.proxy_key = None
+    
+    def activate(self, license_key, hardware_id):
+        """Activate license and get proxy key"""
+        response = requests.post(
+            f"{self.server_url}/activate",
+            json={
+                "license_key": license_key,
+                "hardware_id": hardware_id
+            }
+        )
+        data = response.json()
+        
+        # Decrypt the proxy key
+        encrypted = base64.b64decode(data["encrypted_api_key"])
+        iv = base64.b64decode(data["iv"])
+        
+        # Use license_key as decryption key (first 32 bytes)
+        key = license_key.encode()[:32].ljust(32, b'\0')
+        
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+        decryptor = cipher.decryptor()
+        decrypted = decryptor.update(encrypted) + decryptor.finalize()
+        
+        # Remove padding
+        padding_len = decrypted[-1]
+        self.proxy_key = decrypted[:-padding_len].decode()
+        
+        return data
     
     def openai_chat(self, messages, model="gpt-3.5-turbo"):
+        """Make OpenAI chat completion request via proxy"""
+        if not self.proxy_key:
+            raise ValueError("Must activate license first")
+        
         response = requests.post(
             f"{self.server_url}/proxy/openai/v1/chat/completions",
             json={
-                "license_key": self.license_key,
-                "hardware_id": self.hardware_id,
+                "proxy_key": self.proxy_key,
                 "provider": "openai",
                 "body": {
                     "model": model,
@@ -165,7 +223,8 @@ class LicensifyProxy:
         return response.json()
 
 # Usage
-client = LicensifyProxy("https://your-server.com", "LIC-xxx", "hw-123")
+client = LicensifyProxy("https://your-server.com")
+client.activate("LIC-xxx", "hw-123")
 result = client.openai_chat([{"role": "user", "content": "Hello!"}])
 print(result)
 ```
@@ -173,22 +232,53 @@ print(result)
 ### JavaScript/TypeScript
 
 ```typescript
+import crypto from 'crypto';
+
 class LicensifyProxy {
-  constructor(
-    private serverUrl: string,
-    private licenseKey: string,
-    private hardwareId: string
-  ) {}
+  private proxyKey: string | null = null;
+
+  constructor(private serverUrl: string) {}
+
+  async activate(licenseKey: string, hardwareId: string) {
+    const response = await fetch(`${this.serverUrl}/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ license_key: licenseKey, hardware_id: hardwareId })
+    });
+    
+    const data = await response.json();
+    
+    // Decrypt the proxy key
+    const encrypted = Buffer.from(data.encrypted_api_key, 'base64');
+    const iv = Buffer.from(data.iv, 'base64');
+    
+    // Use license_key as decryption key (first 32 bytes)
+    const key = Buffer.alloc(32);
+    Buffer.from(licenseKey).copy(key);
+    
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encrypted);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    
+    // Remove padding
+    const paddingLen = decrypted[decrypted.length - 1];
+    this.proxyKey = decrypted.slice(0, -paddingLen).toString();
+    
+    return data;
+  }
 
   async openaiChat(messages: any[], model = "gpt-3.5-turbo") {
+    if (!this.proxyKey) {
+      throw new Error("Must activate license first");
+    }
+
     const response = await fetch(
       `${this.serverUrl}/proxy/openai/v1/chat/completions`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          license_key: this.licenseKey,
-          hardware_id: this.hardwareId,
+          proxy_key: this.proxyKey,
           provider: "openai",
           body: { model, messages }
         })
