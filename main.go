@@ -47,6 +47,9 @@ type Config struct {
 	DatabaseURL     string
 	ResendAPIKey    string
 	FromEmail       string
+	ProxyMode       bool
+	OpenAIKey       string
+	AnthropicKey    string
 }
 
 // LicenseData represents license information
@@ -149,6 +152,8 @@ type DecryptedData struct {
 }
 
 func loadConfig() *Config {
+	proxyMode := getEnv("PROXY_MODE", "false") == "true"
+	
 	return &Config{
 		Port:            getEnv("PORT", DefaultPort),
 		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
@@ -157,6 +162,9 @@ func loadConfig() *Config {
 		DatabaseURL:     getEnv("DATABASE_URL", ""),
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		FromEmail:       getEnv("FROM_EMAIL", "noreply@licensify.com"),
+		ProxyMode:       proxyMode,
+		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
+		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
 	}
 }
 
@@ -942,6 +950,207 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	return nil
 }
 
+// ProxyRequest handles proxying to external APIs
+type ProxyRequest struct {
+	LicenseKey string          `json:"license_key"`
+	HardwareID string          `json:"hardware_id"`
+	Provider   string          `json:"provider"` // "openai" or "anthropic"
+	Body       json.RawMessage `json:"body"`     // Original API request body
+}
+
+// handleProxy forwards requests to external APIs while validating license and rate limits
+func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req ProxyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			sendError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Validate license key format
+		if !strings.HasPrefix(req.LicenseKey, "LIC-") {
+			sendError(w, "Invalid license key format", http.StatusBadRequest)
+			return
+		}
+
+		// Check if license exists and is active
+		var licenseID, tier string
+		var dailyLimit, expiresAtUnix int64
+		err := db.QueryRow(`
+			SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
+			FROM licenses 
+			WHERE license_id = $1 AND active = true
+		`, req.LicenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+
+		if err == sql.ErrNoRows {
+			sendError(w, "License not found or inactive", http.StatusUnauthorized)
+			return
+		} else if err != nil {
+			log.Printf("Database error: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if license expired
+		expiresAt := time.Unix(expiresAtUnix, 0)
+		if time.Now().After(expiresAt) {
+			sendError(w, "License has expired", http.StatusUnauthorized)
+			return
+		}
+
+		// Verify hardware ID is activated
+		var count int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM activations 
+			WHERE license_id = $1 AND hardware_id = $2
+		`, licenseID, req.HardwareID).Scan(&count)
+
+		if err != nil {
+			log.Printf("Database error: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if count == 0 {
+			sendError(w, "Hardware ID not activated for this license", http.StatusUnauthorized)
+			return
+		}
+
+		// Check rate limits
+		today := time.Now().Format("2006-01-02")
+		var currentUsage int
+		err = db.QueryRow(`
+			SELECT scans FROM daily_usage 
+			WHERE license_id = $1 AND date = $2 AND hardware_id = $3
+		`, licenseID, today, req.HardwareID).Scan(&currentUsage)
+
+		if err != nil && err != sql.ErrNoRows {
+			log.Printf("Database error checking usage: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Check if limit exceeded
+		if currentUsage >= int(dailyLimit) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": fmt.Sprintf("Daily limit of %d requests exceeded. Current usage: %d", dailyLimit, currentUsage),
+					"type":    "rate_limit_exceeded",
+					"code":    "rate_limit_exceeded",
+				},
+			})
+			return
+		}
+
+		// Determine API endpoint and key
+		var apiURL, apiKey string
+		var headers map[string]string
+
+		switch req.Provider {
+		case "openai":
+			if openaiKey == "" {
+				sendError(w, "OpenAI API key not configured", http.StatusServiceUnavailable)
+				return
+			}
+			// Extract path from request
+			path := strings.TrimPrefix(r.URL.Path, "/proxy/openai")
+			if path == "" || path == "/" {
+				path = "/v1/chat/completions" // Default endpoint
+			}
+			apiURL = "https://api.openai.com" + path
+			apiKey = openaiKey
+			headers = map[string]string{
+				"Authorization": "Bearer " + apiKey,
+				"Content-Type":  "application/json",
+			}
+
+		case "anthropic":
+			if anthropicKey == "" {
+				sendError(w, "Anthropic API key not configured", http.StatusServiceUnavailable)
+				return
+			}
+			path := strings.TrimPrefix(r.URL.Path, "/proxy/anthropic")
+			if path == "" || path == "/" {
+				path = "/v1/messages" // Default endpoint
+			}
+			apiURL = "https://api.anthropic.com" + path
+			apiKey = anthropicKey
+			headers = map[string]string{
+				"x-api-key":       apiKey,
+				"anthropic-version": "2023-06-01",
+				"Content-Type":    "application/json",
+			}
+
+		default:
+			sendError(w, "Unsupported provider. Supported: openai, anthropic", http.StatusBadRequest)
+			return
+		}
+
+		// Forward request to actual API
+		proxyReq, err := http.NewRequest("POST", apiURL, strings.NewReader(string(req.Body)))
+		if err != nil {
+			log.Printf("Failed to create proxy request: %v", err)
+			sendError(w, "Failed to create proxy request", http.StatusInternalServerError)
+			return
+		}
+
+		// Set headers
+		for key, value := range headers {
+			proxyReq.Header.Set(key, value)
+		}
+
+		// Execute request
+		client := &http.Client{Timeout: 120 * time.Second}
+		resp, err := client.Do(proxyReq)
+		if err != nil {
+			log.Printf("Failed to execute proxy request: %v", err)
+			sendError(w, "Failed to connect to API provider", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Increment usage counter (only on successful requests)
+		if resp.StatusCode == http.StatusOK {
+			_, err = db.Exec(`
+				INSERT INTO daily_usage (license_id, date, scans, hardware_id)
+				VALUES ($1, $2, 1, $3)
+				ON CONFLICT (license_id, date)
+				DO UPDATE SET scans = daily_usage.scans + 1
+			`, licenseID, today, req.HardwareID)
+
+			if err != nil {
+				log.Printf("Failed to update usage: %v", err)
+				// Don't fail the request, just log the error
+			}
+		}
+
+		// Copy response headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		// Add rate limit info headers
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", dailyLimit))
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", int(dailyLimit)-currentUsage-1))
+		w.Header().Set("X-RateLimit-Reset", time.Now().Add(24*time.Hour).Format(time.RFC3339))
+
+		// Set status code and stream response body
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+
+		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, licenseID, currentUsage+1, dailyLimit)
+	}
+}
+
 func main() {
 	// Load .env file (ignore error if doesn't exist)
 	_ = godotenv.Load()
@@ -968,6 +1177,18 @@ func main() {
 	http.HandleFunc("/verify", handleVerify(config.ResendAPIKey, config.FromEmail))
 	http.HandleFunc("/activate", handleActivation(config.ProtectedAPIKey))
 	http.HandleFunc("/usage", handleUsageReport())
+
+	// Setup proxy routes if proxy mode is enabled
+	if config.ProxyMode {
+		http.HandleFunc("/proxy/", handleProxy(config.OpenAIKey, config.AnthropicKey))
+		log.Printf("🔀 Proxy mode: ENABLED")
+		if config.OpenAIKey != "" {
+			log.Printf("   ✓ OpenAI proxy available at /proxy/openai/*")
+		}
+		if config.AnthropicKey != "" {
+			log.Printf("   ✓ Anthropic proxy available at /proxy/anthropic/*")
+		}
+	}
 
 	addr := ":" + config.Port
 	log.Printf("🚀 Activation server starting on %s", addr)
