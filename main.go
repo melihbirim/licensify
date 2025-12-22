@@ -25,7 +25,7 @@ import (
 
 const (
 	DefaultPort = "8080"
-	DBFile      = "activations.db"
+	DBFile      = "licensify.db"
 )
 
 var (
@@ -352,9 +352,14 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 
 		// Store code (expires in 15 minutes)
 		expiresAt := time.Now().Add(15 * time.Minute)
+
+		// Delete existing code if any
+		_, _ = db.Exec(`DELETE FROM verification_codes WHERE email = $1`, req.Email)
+
+		// Insert new code
 		_, err = db.Exec(`
-			INSERT OR REPLACE INTO verification_codes (email, code, created_at, expires_at) 
-			VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+			INSERT INTO verification_codes (email, code, created_at, expires_at) 
+			VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
 		`, req.Email, code, expiresAt)
 		if err != nil {
 			log.Printf("Failed to store verification code: %v", err)
@@ -966,7 +971,22 @@ func main() {
 
 	addr := ":" + config.Port
 	log.Printf("🚀 Activation server starting on %s", addr)
-	log.Printf("📁 Database: %s", config.DatabasePath)
+
+	// Log database information
+	if config.DatabaseURL != "" {
+		// Extract host from PostgreSQL URL for logging (hide password)
+		dbInfo := "PostgreSQL"
+		if strings.Contains(config.DatabaseURL, "@") {
+			parts := strings.Split(config.DatabaseURL, "@")
+			if len(parts) > 1 {
+				dbInfo = "PostgreSQL (" + strings.Split(parts[1], "/")[0] + ")"
+			}
+		}
+		log.Printf("📊 Database: %s", dbInfo)
+	} else {
+		log.Printf("📊 Database: SQLite (%s)", config.DatabasePath)
+	}
+
 	log.Printf("📧 Email: %s (Resend)", config.FromEmail)
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
