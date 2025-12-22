@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 )
 
@@ -43,6 +44,7 @@ type Config struct {
 	PrivateKeyB64   string
 	ProtectedAPIKey string
 	DatabasePath    string
+	DatabaseURL     string
 	ResendAPIKey    string
 	FromEmail       string
 }
@@ -152,6 +154,7 @@ func loadConfig() *Config {
 		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
 		ProtectedAPIKey: getEnv("PROTECTED_API_KEY", ""),
 		DatabasePath:    getEnv("DB_PATH", DBFile),
+		DatabaseURL:     getEnv("DATABASE_URL", ""),
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		FromEmail:       getEnv("FROM_EMAIL", "noreply@licensify.com"),
 	}
@@ -164,67 +167,149 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func initDB(dbPath string) error {
+func initDB(dbPath, dbURL string) error {
 	var err error
-	db, err = sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
+	var driverName, dataSource string
+	var isPostgres bool
+
+	// Detect database type
+	if dbURL != "" {
+		// PostgreSQL
+		driverName = "postgres"
+		dataSource = dbURL
+		isPostgres = true
+		log.Printf("📊 Using PostgreSQL database")
+	} else {
+		// SQLite
+		driverName = "sqlite"
+		dataSource = dbPath
+		isPostgres = false
+		log.Printf("📊 Using SQLite database: %s", dbPath)
 	}
 
-	// Create tables
-	schema := `
-	CREATE TABLE IF NOT EXISTS licenses (
-license_id TEXT PRIMARY KEY,
-customer_name TEXT NOT NULL,
-customer_email TEXT NOT NULL,
-tier TEXT NOT NULL DEFAULT 'free',
-expires_at DATETIME NOT NULL,
-daily_limit INTEGER NOT NULL,
-monthly_limit INTEGER NOT NULL,
-max_activations INTEGER NOT NULL,
-active BOOLEAN DEFAULT 1,
-created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+	db, err = sql.Open(driverName, dataSource)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
 
-	CREATE TABLE IF NOT EXISTS activations (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-license_id TEXT NOT NULL,
-hardware_id TEXT NOT NULL,
-activated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-);
+	// Test connection
+	if err = db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
 
-	CREATE TABLE IF NOT EXISTS verification_codes (
-email TEXT PRIMARY KEY,
-code TEXT NOT NULL,
-created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-expires_at DATETIME NOT NULL
-);
+	// Create tables with appropriate syntax
+	var schema string
+	if isPostgres {
+		schema = `
+		CREATE TABLE IF NOT EXISTS licenses (
+			license_id TEXT PRIMARY KEY,
+			customer_name TEXT NOT NULL,
+			customer_email TEXT NOT NULL,
+			tier TEXT NOT NULL DEFAULT 'free',
+			expires_at TIMESTAMP NOT NULL,
+			daily_limit INTEGER NOT NULL,
+			monthly_limit INTEGER NOT NULL,
+			max_activations INTEGER NOT NULL,
+			active BOOLEAN DEFAULT true,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
 
-	CREATE TABLE IF NOT EXISTS daily_usage (
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-license_id TEXT NOT NULL,
-date TEXT NOT NULL,
-scans INTEGER DEFAULT 0,
-hardware_id TEXT NOT NULL,
-UNIQUE(license_id, date),
-FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-);
+		CREATE TABLE IF NOT EXISTS activations (
+			id SERIAL PRIMARY KEY,
+			license_id TEXT NOT NULL,
+			hardware_id TEXT NOT NULL,
+			activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
 
-	CREATE TABLE IF NOT EXISTS check_ins (
-license_id TEXT NOT NULL,
-last_check_in DATETIME NOT NULL,
-PRIMARY KEY (license_id),
-FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-);
+		CREATE TABLE IF NOT EXISTS verification_codes (
+			email TEXT PRIMARY KEY,
+			code TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			expires_at TIMESTAMP NOT NULL
+		);
 
-	CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
-	CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
-	CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
-	CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
-	`
+		CREATE TABLE IF NOT EXISTS daily_usage (
+			id SERIAL PRIMARY KEY,
+			license_id TEXT NOT NULL,
+			date TEXT NOT NULL,
+			scans INTEGER DEFAULT 0,
+			hardware_id TEXT NOT NULL,
+			UNIQUE(license_id, date),
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS check_ins (
+			license_id TEXT NOT NULL PRIMARY KEY,
+			last_check_in TIMESTAMP NOT NULL,
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
+		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
+		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
+		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
+		`
+	} else {
+		schema = `
+		CREATE TABLE IF NOT EXISTS licenses (
+			license_id TEXT PRIMARY KEY,
+			customer_name TEXT NOT NULL,
+			customer_email TEXT NOT NULL,
+			tier TEXT NOT NULL DEFAULT 'free',
+			expires_at DATETIME NOT NULL,
+			daily_limit INTEGER NOT NULL,
+			monthly_limit INTEGER NOT NULL,
+			max_activations INTEGER NOT NULL,
+			active BOOLEAN DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS activations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			license_id TEXT NOT NULL,
+			hardware_id TEXT NOT NULL,
+			activated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS verification_codes (
+			email TEXT PRIMARY KEY,
+			code TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS daily_usage (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			license_id TEXT NOT NULL,
+			date TEXT NOT NULL,
+			scans INTEGER DEFAULT 0,
+			hardware_id TEXT NOT NULL,
+			UNIQUE(license_id, date),
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
+		CREATE TABLE IF NOT EXISTS check_ins (
+			license_id TEXT NOT NULL,
+			last_check_in DATETIME NOT NULL,
+			PRIMARY KEY (license_id),
+			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
+		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
+		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
+		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
+		`
+	}
+
 	_, err = db.Exec(schema)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	return nil
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -860,7 +945,7 @@ func main() {
 	config := loadConfig()
 
 	// Initialize database
-	if err := initDB(config.DatabasePath); err != nil {
+	if err := initDB(config.DatabasePath, config.DatabaseURL); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
