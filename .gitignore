@@ -48,6 +48,9 @@ temp/
 dist/
 build/
 *.tar.gz
+
+# Internal planning docs
+ROADMAP.md
 *.zip
 
 *.db
