@@ -386,7 +386,7 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 		_, err = db.Exec(`
 			INSERT INTO verification_codes (email, code, created_at, expires_at) 
 			VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
-		`, req.Email, code, expiresAt)
+		`, req.Email, code, expiresAt.Format(time.RFC3339))
 		if err != nil {
 			log.Printf("Failed to store verification code: %v", err)
 			sendError(w, "Internal server error", http.StatusInternalServerError)
@@ -427,11 +427,11 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 
 		// Verify code
 		var storedCode string
-		var expiresAt time.Time
+		var expiresAtStr string
 		err := db.QueryRow(`
 			SELECT code, expires_at FROM verification_codes 
 			WHERE email = ?
-		`, req.Email).Scan(&storedCode, &expiresAt)
+		`, req.Email).Scan(&storedCode, &expiresAtStr)
 
 		if err == sql.ErrNoRows {
 			sendError(w, "No verification code found for this email", http.StatusNotFound)
@@ -443,10 +443,20 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
+		expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+		if err != nil {
+			log.Printf("Failed to parse expiration time: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		if time.Now().After(expiresAt) {
 			sendError(w, "Verification code expired", http.StatusBadRequest)
 			return
 		}
+
+		log.Printf("Verification attempt: email=%s, provided=%s, stored=%s, match=%v", 
+			req.Email, req.Code, storedCode, storedCode == req.Code)
 
 		if storedCode != req.Code {
 			sendError(w, "Invalid verification code", http.StatusUnauthorized)
