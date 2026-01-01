@@ -221,6 +221,7 @@ Returns OpenAI/Anthropic response with rate limit headers:
 - ⚠️ HTTPS required in production
 - 🔒 One free license per hardware device
 - 🚫 Configurable activation limits per license
+- ✅ Graceful shutdown for zero-downtime deployments
 
 ## Deployment
 
@@ -241,6 +242,32 @@ docker run -p 8080:8080 \
   licensify:latest
 ```
 
+### Graceful Shutdown
+
+The server supports graceful shutdown for zero-downtime deployments:
+
+```bash
+# Send SIGTERM or SIGINT (Ctrl+C)
+kill -TERM <pid>
+
+# Server will:
+# 1. Stop accepting new connections
+# 2. Complete in-flight requests (up to SHUTDOWN_TIMEOUT)
+# 3. Close database connections cleanly
+# 4. Exit gracefully
+```
+
+**Configuration:**
+```env
+SHUTDOWN_TIMEOUT=30s  # Time to wait for active requests (default: 30s)
+```
+
+This works seamlessly with:
+- **Docker**: `docker stop` sends SIGTERM
+- **Kubernetes**: Respects termination grace period
+- **systemd**: `systemctl stop` sends SIGTERM
+- **Cloud platforms**: Rolling deployments without dropped requests
+
 ### Cloud Platforms
 
 **Fly.io:**
@@ -259,6 +286,9 @@ Deploy Docker container with environment variables
 **Required:**
 - `PRIVATE_KEY` - Base64 Ed25519 private key (generate with `tools/keygen.go`)
 - `PORT` - Server port (default: 8080)
+
+**Optional:**
+- `SHUTDOWN_TIMEOUT` - Graceful shutdown timeout (default: 30s)
 
 **For Direct Mode:**
 - `PROTECTED_API_KEY` - API key to encrypt and deliver
