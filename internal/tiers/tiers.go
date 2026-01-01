@@ -25,6 +25,8 @@ type TierDetails struct {
 	OneTimePayment            float64  `toml:"one_time_payment,omitempty"`
 	CustomPricing             bool     `toml:"custom_pricing,omitempty"`
 	Hidden                    bool     `toml:"hidden,omitempty"`
+	Deprecated                bool     `toml:"deprecated,omitempty"`
+	MigrateTo                 string   `toml:"migrate_to,omitempty"`
 	Description               string   `toml:"description"`
 }
 
@@ -64,6 +66,35 @@ func Load(path string) error {
 		if tier.MaxDevices < -1 {
 			return fmt.Errorf("tier '%s' has invalid max_devices (must be >= -1)", name)
 		}
+		// Validate migration target if deprecated
+		if tier.Deprecated && tier.MigrateTo != "" {
+			if tier.MigrateTo == name {
+				return fmt.Errorf("tier '%s' cannot migrate to itself", name)
+			}
+			// Check if migration target will exist (after loading all tiers)
+		}
+		// Also validate standalone migrate_to without deprecated flag
+		if tier.MigrateTo != "" && !tier.Deprecated {
+			return fmt.Errorf("tier '%s' has migrate_to but is not marked as deprecated", name)
+		}
+	}
+
+	// Second pass: validate migration targets exist
+	for name, tier := range cfg.Tiers {
+		if tier.MigrateTo != "" {
+			if _, exists := cfg.Tiers[tier.MigrateTo]; !exists {
+				return fmt.Errorf("tier '%s' has invalid migrate_to target '%s' (tier does not exist)", name, tier.MigrateTo)
+			}
+		}
+	}
+
+	// Validate migration targets exist
+	for name, tier := range cfg.Tiers {
+		if tier.Deprecated && tier.MigrateTo != "" {
+			if _, exists := cfg.Tiers[tier.MigrateTo]; !exists {
+				return fmt.Errorf("tier '%s' has invalid migrate_to target '%s' (tier not found)", name, tier.MigrateTo)
+			}
+		}
 	}
 
 	config = &cfg
@@ -71,7 +102,31 @@ func Load(path string) error {
 }
 
 // Get returns the tier details for a given tier name
+// If the tier is deprecated, returns the migration target tier
 func Get(tierName string) (*TierDetails, error) {
+	if config == nil {
+		return nil, fmt.Errorf("tier configuration not loaded")
+	}
+
+	tier, exists := config.Tiers[tierName]
+	if !exists {
+		return nil, fmt.Errorf("tier '%s' not found", tierName)
+	}
+
+	// If tier is deprecated and has migration target, return target tier
+	if tier.Deprecated && tier.MigrateTo != "" {
+		targetTier, exists := config.Tiers[tier.MigrateTo]
+		if exists {
+			return targetTier, nil
+		}
+	}
+
+	return tier, nil
+}
+
+// GetRaw returns the tier details without following migration targets
+// This is useful for admin operations that need the actual tier data
+func GetRaw(tierName string) (*TierDetails, error) {
 	if config == nil {
 		return nil, fmt.Errorf("tier configuration not loaded")
 	}
@@ -139,7 +194,7 @@ func GetAllVisible() map[string]*TierDetails {
 
 	visible := make(map[string]*TierDetails)
 	for name, tier := range config.Tiers {
-		if !tier.Hidden {
+		if !tier.Hidden && !tier.Deprecated {
 			visible[name] = tier
 		}
 	}
@@ -164,7 +219,7 @@ func LoadWithFallback(path string) error {
 func getDefaultConfig() *TierConfig {
 	return &TierConfig{
 		Tiers: map[string]*TierDetails{
-			"free": {
+			"tier-1": {
 				Name:                      "Free",
 				DailyLimit:                10,
 				MonthlyLimit:              100,
@@ -173,7 +228,7 @@ func getDefaultConfig() *TierConfig {
 				EmailVerificationRequired: true,
 				Description:               "Perfect for trying out the service",
 			},
-			"pro": {
+			"tier-2": {
 				Name:                      "Professional",
 				DailyLimit:                1000,
 				MonthlyLimit:              30000,
@@ -183,7 +238,7 @@ func getDefaultConfig() *TierConfig {
 				PriceMonthly:              29.99,
 				Description:               "For individual developers and small teams",
 			},
-			"enterprise": {
+			"tier-3": {
 				Name:                      "Enterprise",
 				DailyLimit:                -1,
 				MonthlyLimit:              -1,
@@ -196,4 +251,75 @@ func getDefaultConfig() *TierConfig {
 			},
 		},
 	}
+}
+
+// IsDeprecated checks if a tier is marked as deprecated
+func IsDeprecated(tierName string) bool {
+	if config == nil {
+		return false
+	}
+	tier, exists := config.Tiers[tierName]
+	if !exists {
+		return false
+	}
+	return tier.Deprecated
+}
+
+// GetMigrationTarget returns the migration target for a deprecated tier
+func GetMigrationTarget(tierName string) (string, error) {
+	if config == nil {
+		return "", fmt.Errorf("tier configuration not loaded")
+	}
+
+	tier, exists := config.Tiers[tierName]
+	if !exists {
+		return "", fmt.Errorf("tier '%s' not found", tierName)
+	}
+
+	if !tier.Deprecated {
+		return "", fmt.Errorf("tier '%s' is not deprecated", tierName)
+	}
+
+	if tier.MigrateTo == "" {
+		return "", fmt.Errorf("tier '%s' is deprecated but has no migration target", tierName)
+	}
+
+	// Validate migration target exists
+	if _, exists := config.Tiers[tier.MigrateTo]; !exists {
+		return "", fmt.Errorf("migration target '%s' does not exist", tier.MigrateTo)
+	}
+
+	return tier.MigrateTo, nil
+}
+
+// ListDeprecated returns all deprecated tier names
+func ListDeprecated() []string {
+	if config == nil {
+		return []string{}
+	}
+
+	names := make([]string, 0)
+	for name, tier := range config.Tiers {
+		if tier.Deprecated {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ListActive returns all non-deprecated tier names
+func ListActive() []string {
+	if config == nil {
+		return []string{}
+	}
+
+	names := make([]string, 0)
+	for name, tier := range config.Tiers {
+		if !tier.Deprecated {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

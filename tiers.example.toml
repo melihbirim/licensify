@@ -1,10 +1,11 @@
 # Licensify Tier Configuration - Example
 # Copy this file to tiers.toml and customize for your needs
 
-# Each tier is defined in a [tiers.NAME] section
-# Tier names should be lowercase (free, pro, enterprise, etc.)
+# Each tier is defined in a [tiers.TIER-ID] section
+# Tier IDs should use numeric format: tier-1, tier-2, tier-3, etc.
+# This allows easy addition/removal of tiers and migration paths
 
-[tiers.free]
+[tiers.tier-1]
 # Display name for the tier
 name = "Free"
 
@@ -35,7 +36,11 @@ description = "Perfect for trying out the service"
 # Optional: Hide tier from public listings (for beta/special tiers)
 # hidden = false
 
-[tiers.pro]
+# Optional: Mark tier as deprecated and specify migration target
+# deprecated = false
+# migrate_to = "tier-11"  # Tier ID to migrate users to
+
+[tiers.tier-2]
 name = "Professional"
 daily_limit = 1000
 monthly_limit = 30000
@@ -56,8 +61,19 @@ price_monthly = 299.99
 custom_pricing = true
 description = "Unlimited access with dedicated support and SLA"
 
+# Example: Deprecated tier with automatic migration
+# [tiers.tier-11]
+# name = "Old Free"
+# daily_limit = 5
+# monthly_limit = 50
+# max_devices = 1
+# features = ["basic_api_access"]
+# deprecated = true
+# migrate_to = "tier-1"  # Auto-migrate users to tier-1
+# description = "Deprecated - migrating to tier-1"
+
 # Example: Custom tier for beta testers
-# [tiers.beta]
+# [tiers.tier-50]
 # name = "Beta Tester"
 # daily_limit = 100
 # monthly_limit = 3000
@@ -67,7 +83,7 @@ description = "Unlimited access with dedicated support and SLA"
 # description = "For beta testers and early adopters"
 
 # Example: Lifetime license tier
-# [tiers.lifetime]
+# [tiers.tier-100]
 # name = "Lifetime Pro"
 # daily_limit = 5000
 # monthly_limit = -1

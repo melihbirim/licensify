@@ -1,16 +1,28 @@
 # Licensify Tier Configuration
 # This file defines all available license tiers and their limits
+# Tier IDs are numeric (tier-1, tier-2, tier-3, etc.) for maximum flexibility
 
-[tiers.free]
-name = "Free"
+[tiers.tier-1]
+name = "Free (Legacy)"
 daily_limit = 10
 monthly_limit = 100
 max_devices = 1
 features = ["basic_api_access", "email_verification"]
 email_verification_required = true
-description = "Perfect for trying out the service"
+description = "Legacy free tier - migrated to tier-11"
+deprecated = true
+migrate_to = "tier-11"  # Users on tier-1 should be migrated to tier-11
 
-[tiers.pro]
+[tiers.tier-11]
+name = "Free V2"
+daily_limit = 20
+monthly_limit = 200
+max_devices = 2
+features = ["basic_api_access", "email_verification"]
+email_verification_required = true
+description = "New improved free tier with better limits"
+
+[tiers.tier-2]
 name = "Professional"
 daily_limit = 1000
 monthly_limit = 30000
@@ -20,7 +32,7 @@ email_verification_required = false
 price_monthly = 29.99
 description = "For individual developers and small teams"
 
-[tiers.enterprise]
+[tiers.tier-3]
 name = "Enterprise"
 daily_limit = -1  # -1 means unlimited
 monthly_limit = -1
@@ -32,7 +44,7 @@ custom_pricing = true
 description = "Unlimited access with dedicated support and SLA"
 
 # Example: Custom tier for special customers
-# [tiers.lifetime]
+# [tiers.tier-100]
 # name = "Lifetime Pro"
 # daily_limit = 5000
 # monthly_limit = -1
@@ -40,3 +52,4 @@ description = "Unlimited access with dedicated support and SLA"
 # features = ["basic_api_access", "priority_support", "api_analytics"]
 # one_time_payment = 499.99
 # description = "One-time payment, lifetime access"
+

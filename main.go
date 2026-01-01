@@ -432,7 +432,7 @@ func handleTiers(w http.ResponseWriter, r *http.Request) {
 
 	// Get all visible tiers
 	allTiers := tiers.GetAllVisible()
-	
+
 	// Convert to response format
 	response := make(map[string]TierInfo)
 	for name, tier := range allTiers {
