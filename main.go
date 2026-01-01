@@ -38,7 +38,7 @@ var (
 	isPostgresDB bool // Track database type
 
 	// Build information (set via ldflags)
-	Version   = "dev"
+	Version   = "1.0.0"
 	GitCommit = "unknown"
 	BuildTime = "unknown"
 
@@ -405,6 +405,80 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"git_commit": GitCommit,
 		"build_time": BuildTime,
 	})
+}
+
+// CheckRequest from CLI to check license status
+type CheckRequest struct {
+	LicenseKey string `json:"license_key"`
+}
+
+// CheckResponse with current license status
+type CheckResponse struct {
+	Success       bool      `json:"success"`
+	CustomerName  string    `json:"customer_name,omitempty"`
+	CustomerEmail string    `json:"customer_email,omitempty"`
+	Tier          string    `json:"tier,omitempty"`
+	ExpiresAt     time.Time `json:"expires_at,omitempty"`
+	Active        bool      `json:"active"`
+	Limits        struct {
+		DailyLimit     int `json:"daily_limit"`
+		MonthlyLimit   int `json:"monthly_limit"`
+		MaxActivations int `json:"max_activations"`
+	} `json:"limits,omitempty"`
+	CurrentActivations int    `json:"current_activations,omitempty"`
+	Error              string `json:"error,omitempty"`
+}
+
+func handleCheck() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req CheckRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			sendError(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if req.LicenseKey == "" {
+			sendError(w, "License key is required", http.StatusBadRequest)
+			return
+		}
+
+		// Get license from database
+		license, err := getLicense(req.LicenseKey)
+		if err != nil {
+			sendError(w, "Invalid license key", http.StatusUnauthorized)
+			return
+		}
+
+		// Get activation count
+		count, err := getActivationCount(req.LicenseKey)
+		if err != nil {
+			log.Printf("Error checking activations: %v", err)
+			count = 0
+		}
+
+		resp := CheckResponse{
+			Success:            true,
+			CustomerName:       license.CustomerName,
+			CustomerEmail:      license.CustomerEmail,
+			Tier:               license.Tier,
+			ExpiresAt:          license.ExpiresAt,
+			Active:             license.Active,
+			CurrentActivations: count,
+		}
+		resp.Limits.DailyLimit = license.Limits.DailyLimit
+		resp.Limits.MonthlyLimit = license.Limits.MonthlyLimit
+		resp.Limits.MaxActivations = license.Limits.MaxActivations
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+
+		log.Printf("License check for %s: tier=%s, active=%v", req.LicenseKey, license.Tier, license.Active)
+	}
 }
 
 func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
@@ -1384,6 +1458,23 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 }
 
 func main() {
+	// Check for version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("Licensify - API Key & License Management Server")
+		fmt.Printf("Version:    %s\n", Version)
+		if GitCommit != "unknown" {
+			fmt.Printf("Commit:     %s\n", GitCommit)
+		}
+		if BuildTime != "unknown" {
+			fmt.Printf("Built:      %s\n", BuildTime)
+		}
+		fmt.Println()
+		fmt.Println("Repository: https://github.com/melihbirim/licensify")
+		fmt.Println("License:    GNU AGPL-3.0")
+		fmt.Println("Copyright:  © 2025 Melih Birim")
+		os.Exit(0)
+	}
+
 	// Load .env file (ignore error if doesn't exist)
 	_ = godotenv.Load()
 
@@ -1408,6 +1499,7 @@ func main() {
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail)))
 	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail)))
 	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
+	http.HandleFunc("/check", rateLimitMiddleware(handleCheck()))
 	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))
 
 	// Setup proxy routes if proxy mode is enabled
