@@ -17,8 +17,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -111,6 +113,7 @@ type Config struct {
 	OpenAIKey       string
 	AnthropicKey    string
 	TiersConfigPath string
+	ShutdownTimeout time.Duration
 }
 
 // LicenseData represents license information
@@ -215,6 +218,16 @@ type DecryptedData struct {
 func loadConfig() *Config {
 	proxyMode := getEnv("PROXY_MODE", "false") == "true"
 
+	// Parse shutdown timeout with default of 30 seconds
+	shutdownTimeout := 30 * time.Second
+	if timeoutStr := getEnv("SHUTDOWN_TIMEOUT", ""); timeoutStr != "" {
+		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+			shutdownTimeout = parsed
+		} else {
+			log.Printf("⚠️  Invalid SHUTDOWN_TIMEOUT value '%s', using default 30s", timeoutStr)
+		}
+	}
+
 	return &Config{
 		Port:            getEnv("PORT", DefaultPort),
 		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
@@ -227,6 +240,7 @@ func loadConfig() *Config {
 		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
 		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
 		TiersConfigPath: getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
+		ShutdownTimeout: shutdownTimeout,
 	}
 }
 
@@ -1591,7 +1605,50 @@ func main() {
 
 	log.Printf("📧 Email: %s (Resend)", config.FromEmail)
 
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// Create HTTP server instance for graceful shutdown
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      nil, // Using DefaultServeMux
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	// Start server in a goroutine
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("✅ Server ready to accept connections")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- fmt.Errorf("server failed: %w", err)
+		}
+		serverErr <- nil
+	}()
+
+	// Setup signal handling for graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Wait for either error or shutdown signal
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	case sig := <-quit:
+		log.Printf("🛑 Received shutdown signal: %v", sig)
+	}
+
+	// Graceful shutdown
+	log.Printf("🔄 Shutting down server gracefully (timeout: %v)...", config.ShutdownTimeout)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("❌ Server forced to shutdown: %v", err)
+		return
+	}
+
+	log.Println("✅ Server stopped gracefully")
 }
