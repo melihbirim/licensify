@@ -96,6 +96,7 @@ ANTHROPIC_API_KEY=sk-xxx  # Anthropic proxy endpoint
 # Email verification (free tier)
 RESEND_API_KEY=re_xxx
 FROM_EMAIL=noreply@yourdomain.com
+REQUIRE_EMAIL_VERIFICATION=true  # Set to false for development/self-hosted
 
 # Database
 DB_PATH=activations.db         # SQLite (development, small scale)
@@ -167,6 +168,8 @@ Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_lim
 
 ### Proxy Mode Endpoints
 
+**Important**: Proxy requests require HMAC-SHA256 signatures for security. See [docs/SECURITY-UPDATES-2025.md](docs/SECURITY-UPDATES-2025.md) for client integration examples.
+
 **POST /proxy/openai/*** - Proxy OpenAI requests
 ```json
 {
@@ -175,7 +178,9 @@ Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_lim
   "body": {
     "model": "gpt-3.5-turbo",
     "messages": [{"role": "user", "content": "Hello"}]
-  }
+  },
+  "signature": "hmac_sha256_signature",
+  "timestamp": 1735689600
 }
 ```
 
@@ -187,7 +192,9 @@ Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_lim
   "body": {
     "model": "claude-3-sonnet-20240229",
     "messages": [{"role": "user", "content": "Hello"}]
-  }
+  },
+  "signature": "hmac_sha256_signature",
+  "timestamp": 1735689600
 }
 ```
 
@@ -203,18 +210,28 @@ Returns OpenAI/Anthropic response with rate limit headers:
 
 ## Security Features
 
+**🔒 Production-Grade Security (2025 Updates):**
+- 🔐 **Argon2id Key Derivation**: Memory-hard encryption with per-license salt (replaces weak SHA256)
+- 🔏 **HMAC Request Signing**: Proxy endpoints require cryptographic signatures to prevent key theft
+- ⏱️ **Replay Attack Protection**: 5-minute timestamp window on all signed requests
+- 🛡️ **Constant-Time Comparison**: Prevents timing attacks on signature validation
+- ✅ **Startup Validation**: Server fails fast with clear errors if secrets are missing/invalid
+- 📝 **PII Redaction**: Email and license key redaction in logs (GDPR/CCPA compliant)
+- 🔄 **PostgreSQL Connection Pooling**: Production-tuned for high concurrency (25 max connections)
+- 💾 **SQLite WAL Mode**: ~30% performance improvement with Write-Ahead Logging
+
 **Proxy Mode (Maximum Security):**
 - 🔒 API keys NEVER leave server
 - 🚦 Server-side rate limiting (impossible to bypass)
 - 🛡️ Per-IP rate limiting (10 req/sec, DDoS protection)
 - 📊 Usage tracking per license
-- 🔐 Unique proxy keys per activation
+- 🔐 Unique proxy keys per activation with HMAC signatures
 
 **Direct Mode:**
 - 🔐 AES-256-GCM encryption for API keys
 - 🔑 Ed25519 signature verification
 - 🖥️ Hardware binding prevents license sharing
-- ✉️ Email verification for free tier
+- ✉️ Email verification for free tier (optional bypass for development)
 - 📈 Usage tracking and limits
 
 **General:**
@@ -222,6 +239,10 @@ Returns OpenAI/Anthropic response with rate limit headers:
 - 🔒 One free license per hardware device
 - 🚫 Configurable activation limits per license
 - ✅ Graceful shutdown for zero-downtime deployments
+
+**📚 Security Documentation:**
+- See [docs/SECURITY-UPDATES-2025.md](docs/SECURITY-UPDATES-2025.md) for complete security audit and implementation details
+- Includes client integration examples for HMAC signing (JavaScript, Python, Go)
 
 ## Deployment
 
