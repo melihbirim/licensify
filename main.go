@@ -280,132 +280,20 @@ func initDB(dbPath, dbURL string) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Create tables with appropriate syntax
-	var schema string
+	// Load and execute schema from SQL files
+	var schemaPath string
 	if isPostgresDB {
-		schema = `
-		CREATE TABLE IF NOT EXISTS licenses (
-			license_id TEXT PRIMARY KEY,
-			customer_name TEXT NOT NULL,
-			customer_email TEXT NOT NULL,
-			tier TEXT NOT NULL DEFAULT 'free',
-			expires_at TIMESTAMP NOT NULL,
-			daily_limit INTEGER NOT NULL,
-			monthly_limit INTEGER NOT NULL,
-			max_activations INTEGER NOT NULL,
-			active BOOLEAN DEFAULT true,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS activations (
-			id SERIAL PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS verification_codes (
-			email TEXT PRIMARY KEY,
-			code TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS daily_usage (
-			id SERIAL PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			date TEXT NOT NULL,
-			scans INTEGER DEFAULT 0,
-			hardware_id TEXT NOT NULL,
-			UNIQUE(license_id, date),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS check_ins (
-			license_id TEXT NOT NULL PRIMARY KEY,
-			last_check_in TIMESTAMP NOT NULL,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS proxy_keys (
-			proxy_key TEXT PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
-		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
-		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
-		`
+		schemaPath = "sql/postgres/init.sql"
 	} else {
-		schema = `
-		CREATE TABLE IF NOT EXISTS licenses (
-			license_id TEXT PRIMARY KEY,
-			customer_name TEXT NOT NULL,
-			customer_email TEXT NOT NULL,
-			tier TEXT NOT NULL DEFAULT 'free',
-			expires_at DATETIME NOT NULL,
-			daily_limit INTEGER NOT NULL,
-			monthly_limit INTEGER NOT NULL,
-			max_activations INTEGER NOT NULL,
-			active BOOLEAN DEFAULT 1,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS activations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			activated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS verification_codes (
-			email TEXT PRIMARY KEY,
-			code TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			expires_at DATETIME NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS daily_usage (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			license_id TEXT NOT NULL,
-			date TEXT NOT NULL,
-			scans INTEGER DEFAULT 0,
-			hardware_id TEXT NOT NULL,
-			UNIQUE(license_id, date),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS check_ins (
-			license_id TEXT NOT NULL,
-			last_check_in DATETIME NOT NULL,
-			PRIMARY KEY (license_id),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS proxy_keys (
-			proxy_key TEXT PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
-		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
-		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
-		`
+		schemaPath = "sql/sqlite/init.sql"
 	}
 
-	_, err = db.Exec(schema)
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+	}
+
+	_, err = db.Exec(string(schema))
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -576,13 +464,13 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 		expiresAt := time.Now().Add(15 * time.Minute)
 
 		// Delete existing code if any
-		_, _ = db.Exec(`DELETE FROM verification_codes WHERE email = $1`, req.Email)
+		_, _ = db.Exec(fmt.Sprintf(`DELETE FROM verification_codes WHERE email = %s`, sqlPlaceholder(1)), req.Email)
 
 		// Insert new code
-		_, err = db.Exec(`
+		_, err = db.Exec(fmt.Sprintf(`
 			INSERT INTO verification_codes (email, code, created_at, expires_at) 
-			VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
-		`, req.Email, code, expiresAt.Format(time.RFC3339))
+			VALUES (%s, %s, CURRENT_TIMESTAMP, %s)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), req.Email, code, expiresAt.Format(time.RFC3339))
 		if err != nil {
 			log.Printf("Failed to store verification code: %v", err)
 			sendError(w, "Internal server error", http.StatusInternalServerError)
@@ -778,7 +666,24 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Activation request: license=%s, hardware=%s", req.LicenseKey, req.HardwareID[:8]+"...")
+		// Normalize and validate inputs early to avoid panics and wasted work
+		req.HardwareID = strings.TrimSpace(req.HardwareID)
+		if len(req.HardwareID) < 8 {
+			sendError(w, "hardware_id must be at least 8 characters", http.StatusBadRequest)
+			return
+		}
+
+		req.LicenseKey = strings.TrimSpace(req.LicenseKey)
+		if req.LicenseKey == "" {
+			sendError(w, "License key is required", http.StatusBadRequest)
+			return
+		}
+
+		hwPrefix := req.HardwareID
+		if len(req.HardwareID) > 8 {
+			hwPrefix = req.HardwareID[:8] + "..."
+		}
+		log.Printf("Activation request: license=%s, hardware=%s", req.LicenseKey, hwPrefix)
 
 		// Validate license key exists
 		license, err := getLicense(req.LicenseKey)
@@ -790,7 +695,11 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 
 		// For FREE tier: Check if this hardware already has an active free license
 		if license.Tier == "free" && isFreeHardwareAlreadyActive(req.HardwareID, req.LicenseKey) {
-			log.Printf("Hardware %s already has an active free license, blocking new free license %s", req.HardwareID[:8]+"...", req.LicenseKey)
+			hwPrefix := req.HardwareID
+			if len(req.HardwareID) > 8 {
+				hwPrefix = req.HardwareID[:8] + "..."
+			}
+			log.Printf("Hardware %s already has an active free license, blocking new free license %s", hwPrefix, req.LicenseKey)
 			sendError(w, "This device already has an active FREE license. Each device is limited to one free license.", http.StatusForbidden)
 			return
 		}
@@ -1257,7 +1166,7 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("resend API error: %s", body)
 	}
@@ -1640,7 +1549,7 @@ func main() {
 
 	// Graceful shutdown
 	log.Printf("🔄 Shutting down server gracefully (timeout: %v)...", config.ShutdownTimeout)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
 

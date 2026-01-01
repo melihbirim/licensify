@@ -1,0 +1,5 @@
+# Migrations Directory
+
+Future database migrations will be placed here.
+
+See `sql/README.md` for migration guidelines and naming conventions.
