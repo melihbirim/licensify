@@ -1,0 +1,42 @@
+# Licensify Tier Configuration
+# This file defines all available license tiers and their limits
+
+[tiers.free]
+name = "Free"
+daily_limit = 10
+monthly_limit = 100
+max_devices = 1
+features = ["basic_api_access", "email_verification"]
+email_verification_required = true
+description = "Perfect for trying out the service"
+
+[tiers.pro]
+name = "Professional"
+daily_limit = 1000
+monthly_limit = 30000
+max_devices = 3
+features = ["basic_api_access", "priority_support", "api_analytics"]
+email_verification_required = false
+price_monthly = 29.99
+description = "For individual developers and small teams"
+
+[tiers.enterprise]
+name = "Enterprise"
+daily_limit = -1  # -1 means unlimited
+monthly_limit = -1
+max_devices = -1
+features = ["basic_api_access", "priority_support", "api_analytics", "custom_endpoints", "sla", "dedicated_support"]
+email_verification_required = false
+price_monthly = 299.99
+custom_pricing = true
+description = "Unlimited access with dedicated support and SLA"
+
+# Example: Custom tier for special customers
+# [tiers.lifetime]
+# name = "Lifetime Pro"
+# daily_limit = 5000
+# monthly_limit = -1
+# max_devices = 5
+# features = ["basic_api_access", "priority_support", "api_analytics"]
+# one_time_payment = 499.99
+# description = "One-time payment, lifetime access"

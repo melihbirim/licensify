@@ -1,0 +1,77 @@
+# Licensify Tier Configuration - Example
+# Copy this file to tiers.toml and customize for your needs
+
+# Each tier is defined in a [tiers.NAME] section
+# Tier names should be lowercase (free, pro, enterprise, etc.)
+
+[tiers.free]
+# Display name for the tier
+name = "Free"
+
+# Daily API call limit (use -1 for unlimited)
+daily_limit = 10
+
+# Monthly API call limit (use -1 for unlimited)
+monthly_limit = 100
+
+# Maximum number of device activations (use -1 for unlimited)
+max_devices = 1
+
+# List of features available in this tier
+features = ["basic_api_access", "email_verification"]
+
+# Whether email verification is required for this tier
+email_verification_required = true
+
+# Optional: Monthly price (useful for integration with payment systems)
+# price_monthly = 0.00
+
+# Optional: One-time payment (for lifetime licenses)
+# one_time_payment = 0.00
+
+# Description of the tier
+description = "Perfect for trying out the service"
+
+# Optional: Hide tier from public listings (for beta/special tiers)
+# hidden = false
+
+[tiers.pro]
+name = "Professional"
+daily_limit = 1000
+monthly_limit = 30000
+max_devices = 3
+features = ["basic_api_access", "priority_support", "api_analytics"]
+email_verification_required = false
+price_monthly = 29.99
+description = "For individual developers and small teams"
+
+[tiers.enterprise]
+name = "Enterprise"
+daily_limit = -1  # -1 means unlimited
+monthly_limit = -1
+max_devices = -1
+features = ["basic_api_access", "priority_support", "api_analytics", "custom_endpoints", "sla", "dedicated_support"]
+email_verification_required = false
+price_monthly = 299.99
+custom_pricing = true
+description = "Unlimited access with dedicated support and SLA"
+
+# Example: Custom tier for beta testers
+# [tiers.beta]
+# name = "Beta Tester"
+# daily_limit = 100
+# monthly_limit = 3000
+# max_devices = 2
+# features = ["basic_api_access", "beta_features"]
+# hidden = true  # Don't show in public tier listings
+# description = "For beta testers and early adopters"
+
+# Example: Lifetime license tier
+# [tiers.lifetime]
+# name = "Lifetime Pro"
+# daily_limit = 5000
+# monthly_limit = -1
+# max_devices = 5
+# features = ["basic_api_access", "priority_support", "api_analytics"]
+# one_time_payment = 499.99
+# description = "One-time payment, lifetime access"

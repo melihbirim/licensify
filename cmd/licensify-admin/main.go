@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/melihbirim/licensify/internal/tiers"
 	_ "modernc.org/sqlite"
 )
 
@@ -55,6 +56,8 @@ func main() {
 		handleDeactivate()
 	case "activate":
 		handleActivate()
+	case "tiers":
+		handleTiers()
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
@@ -76,6 +79,7 @@ func printUsage() {
 	fmt.Println("  get          Get license details")
 	fmt.Println("  activate     Activate a license")
 	fmt.Println("  deactivate   Deactivate a license")
+	fmt.Println("  tiers        Manage tier configuration")
 	fmt.Println("  version      Show version")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -99,7 +103,7 @@ func handleCreate() {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	email := fs.String("email", "", "Customer email (required)")
 	name := fs.String("name", "", "Customer name (required)")
-	tier := fs.String("tier", "pro", "License tier: free, pro, enterprise")
+	tier := fs.String("tier", "pro", "License tier (use 'tiers list' to see available tiers)")
 	months := fs.Int("months", 12, "License duration in months (0 for lifetime)")
 	dailyLimit := fs.Int("daily", 0, "Daily API limit (0 for tier default, -1 unlimited)")
 	monthlyLimit := fs.Int("monthly", 0, "Monthly API limit (0 for tier default, -1 unlimited)")
@@ -113,10 +117,19 @@ func handleCreate() {
 		os.Exit(1)
 	}
 
-	// Validate tier
-	validTiers := map[string]bool{"free": true, "pro": true, "enterprise": true}
-	if !validTiers[*tier] {
-		fmt.Printf("Error: Invalid tier '%s'. Must be: free, pro, enterprise\n", *tier)
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+	if err := tiers.LoadWithFallback(tiersPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+
+	// Validate tier exists
+	if !tiers.Exists(*tier) {
+		fmt.Printf("Error: Invalid tier '%s'. Available tiers: %v\n", *tier, tiers.List())
+		fmt.Println("Use 'licensify-admin tiers list' to see tier details")
 		os.Exit(1)
 	}
 
@@ -126,38 +139,18 @@ func handleCreate() {
 	}
 	defer db.Close()
 
+	// Get tier configuration
+	tierConfig, _ := tiers.Get(*tier)
+
 	// Set defaults based on tier if not specified
 	if *dailyLimit == 0 {
-		switch *tier {
-		case "free":
-			*dailyLimit = 10
-		case "pro":
-			*dailyLimit = 1000
-		case "enterprise":
-			*dailyLimit = -1
-		}
+		*dailyLimit = tierConfig.DailyLimit
 	}
-
 	if *monthlyLimit == 0 {
-		switch *tier {
-		case "free":
-			*monthlyLimit = 100
-		case "pro":
-			*monthlyLimit = 30000
-		case "enterprise":
-			*monthlyLimit = -1
-		}
+		*monthlyLimit = tierConfig.MonthlyLimit
 	}
-
 	if *maxActivations == 0 {
-		switch *tier {
-		case "free":
-			*maxActivations = 1
-		case "pro":
-			*maxActivations = 3
-		case "enterprise":
-			*maxActivations = -1
-		}
+		*maxActivations = tierConfig.MaxDevices
 	}
 
 	// Generate license key
@@ -199,7 +192,7 @@ func handleCreate() {
 func handleUpgrade() {
 	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
 	oldLicense := fs.String("license", "", "Current license key to upgrade (required)")
-	newTier := fs.String("tier", "", "New tier: free, pro, enterprise (required)")
+	newTier := fs.String("tier", "", "New tier (required - use 'tiers list' to see available)")
 	months := fs.Int("months", 0, "Duration for new license in months (0 to keep same expiry)")
 	sendEmail := fs.Bool("send-email", true, "Send email to customer with new license key")
 
@@ -211,10 +204,19 @@ func handleUpgrade() {
 		os.Exit(1)
 	}
 
-	// Validate tier
-	validTiers := map[string]bool{"free": true, "pro": true, "enterprise": true}
-	if !validTiers[*newTier] {
-		fmt.Printf("Error: Invalid tier '%s'. Must be: free, pro, enterprise\n", *newTier)
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+	if err := tiers.LoadWithFallback(tiersPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+
+	// Validate tier exists
+	if !tiers.Exists(*newTier) {
+		fmt.Printf("Error: Invalid tier '%s'. Available tiers: %v\n", *newTier, tiers.List())
+		fmt.Println("Use 'licensify-admin tiers list' to see tier details")
 		os.Exit(1)
 	}
 
@@ -240,16 +242,11 @@ func handleUpgrade() {
 		log.Fatalf("Failed to get license: %v", err)
 	}
 
-	// Calculate new limits based on tier
-	var dailyLimit, monthlyLimit, maxActivations int
-	switch *newTier {
-	case "free":
-		dailyLimit, monthlyLimit, maxActivations = 10, 100, 1
-	case "pro":
-		dailyLimit, monthlyLimit, maxActivations = 1000, 30000, 3
-	case "enterprise":
-		dailyLimit, monthlyLimit, maxActivations = -1, -1, -1
-	}
+	// Get tier configuration
+	tierConfig, _ := tiers.Get(*newTier)
+	dailyLimit := tierConfig.DailyLimit
+	monthlyLimit := tierConfig.MonthlyLimit
+	maxActivations := tierConfig.MaxDevices
 
 	// Calculate new expiry
 	var newExpiresAt time.Time
@@ -799,3 +796,147 @@ func sendUpgradeEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTier, n
 
 	return nil
 }
+
+func handleTiers() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: licensify-admin tiers <subcommand>")
+		fmt.Println()
+		fmt.Println("Subcommands:")
+		fmt.Println("  list      List all available tiers with details")
+		fmt.Println("  get       Get specific tier configuration")
+		fmt.Println("  validate  Validate tiers.toml configuration")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  licensify-admin tiers list")
+		fmt.Println("  licensify-admin tiers get -name pro")
+		fmt.Println("  licensify-admin tiers validate")
+		os.Exit(1)
+	}
+
+	subcommand := os.Args[2]
+
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+
+	switch subcommand {
+	case "list":
+		if err := tiers.LoadWithFallback(tiersPath); err != nil {
+			log.Fatalf("Failed to load tier configuration: %v", err)
+		}
+
+		allTiers := tiers.GetAll()
+		if len(allTiers) == 0 {
+			fmt.Println("No tiers configured")
+			return
+		}
+
+		fmt.Println("Available Tiers:")
+		fmt.Println(strings.Repeat("=", 100))
+		for name, tier := range allTiers {
+			fmt.Printf("\n📦 %s (%s)\n", strings.ToUpper(name), tier.Name)
+			fmt.Println(strings.Repeat("-", 100))
+			fmt.Printf("  Daily Limit:       %s\n", formatLimit(tier.DailyLimit))
+			fmt.Printf("  Monthly Limit:     %s\n", formatLimit(tier.MonthlyLimit))
+			fmt.Printf("  Max Devices:       %s\n", formatLimit(tier.MaxDevices))
+			fmt.Printf("  Features:          %s\n", strings.Join(tier.Features, ", "))
+			fmt.Printf("  Email Verification: %v\n", tier.EmailVerificationRequired)
+			if tier.PriceMonthly > 0 {
+				fmt.Printf("  Price (Monthly):   $%.2f\n", tier.PriceMonthly)
+			}
+			if tier.OneTimePayment > 0 {
+				fmt.Printf("  Price (Lifetime):  $%.2f\n", tier.OneTimePayment)
+			}
+			if tier.CustomPricing {
+				fmt.Printf("  Custom Pricing:    Yes\n")
+			}
+			if tier.Hidden {
+				fmt.Printf("  Hidden:            Yes (not visible in public listings)\n")
+			}
+			fmt.Printf("  Description:       %s\n", tier.Description)
+		}
+		fmt.Println(strings.Repeat("=", 100))
+		fmt.Printf("\nTotal: %d tiers\n", len(allTiers))
+
+	case "get":
+		fs := flag.NewFlagSet("get", flag.ExitOnError)
+		tierName := fs.String("name", "", "Tier name (required)")
+		fs.Parse(os.Args[3:])
+
+		if *tierName == "" {
+			fmt.Println("Error: -name is required")
+			fs.PrintDefaults()
+			os.Exit(1)
+		}
+
+		if err := tiers.LoadWithFallback(tiersPath); err != nil {
+			log.Fatalf("Failed to load tier configuration: %v", err)
+		}
+
+		tier, err := tiers.Get(*tierName)
+		if err != nil {
+			fmt.Printf("❌ %v\n", err)
+			fmt.Printf("Available tiers: %v\n", tiers.List())
+			os.Exit(1)
+		}
+
+		fmt.Printf("\n📦 %s (%s)\n", strings.ToUpper(*tierName), tier.Name)
+		fmt.Println(strings.Repeat("=", 60))
+		fmt.Printf("Daily Limit:           %s\n", formatLimit(tier.DailyLimit))
+		fmt.Printf("Monthly Limit:         %s\n", formatLimit(tier.MonthlyLimit))
+		fmt.Printf("Max Devices:           %s\n", formatLimit(tier.MaxDevices))
+		fmt.Printf("Features:              %s\n", strings.Join(tier.Features, ", "))
+		fmt.Printf("Email Verification:    %v\n", tier.EmailVerificationRequired)
+		if tier.PriceMonthly > 0 {
+			fmt.Printf("Price (Monthly):       $%.2f\n", tier.PriceMonthly)
+		}
+		if tier.OneTimePayment > 0 {
+			fmt.Printf("Price (Lifetime):      $%.2f\n", tier.OneTimePayment)
+		}
+		if tier.CustomPricing {
+			fmt.Printf("Custom Pricing:        Yes\n")
+		}
+		if tier.Hidden {
+			fmt.Printf("Hidden:                Yes\n")
+		}
+		fmt.Printf("Description:           %s\n", tier.Description)
+		fmt.Println(strings.Repeat("=", 60))
+
+	case "validate":
+		fmt.Printf("Validating tier configuration: %s\n", tiersPath)
+		
+		if err := tiers.Load(tiersPath); err != nil {
+			fmt.Printf("❌ Validation failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		allTiers := tiers.GetAll()
+		fmt.Printf("✅ Configuration is valid!\n")
+		fmt.Printf("   Found %d tier(s): %v\n", len(allTiers), tiers.List())
+		
+		// Check for common issues
+		warnings := []string{}
+		for name, tier := range allTiers {
+			if tier.DailyLimit > tier.MonthlyLimit && tier.MonthlyLimit != -1 {
+				warnings = append(warnings, fmt.Sprintf("tier '%s': daily_limit (%d) > monthly_limit (%d)", name, tier.DailyLimit, tier.MonthlyLimit))
+			}
+			if len(tier.Features) == 0 {
+				warnings = append(warnings, fmt.Sprintf("tier '%s': no features defined", name))
+			}
+		}
+
+		if len(warnings) > 0 {
+			fmt.Println("\n⚠️  Warnings:")
+			for _, warning := range warnings {
+				fmt.Printf("   - %s\n", warning)
+			}
+		}
+
+	default:
+		fmt.Printf("Unknown subcommand: %s\n", subcommand)
+		os.Exit(1)
+	}
+}
+
