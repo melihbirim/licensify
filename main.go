@@ -5,10 +5,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +28,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/melihbirim/licensify/internal/tiers"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
 )
@@ -157,28 +160,30 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // Config represents server configuration
 type Config struct {
-	Port            string
-	PrivateKeyB64   string
-	ProtectedAPIKey string
-	DatabasePath    string
-	DatabaseURL     string
-	ResendAPIKey    string
-	FromEmail       string
-	ProxyMode       bool
-	OpenAIKey       string
-	AnthropicKey    string
-	TiersConfigPath string
-	ShutdownTimeout time.Duration
+	Port                     string
+	PrivateKeyB64            string
+	ProtectedAPIKey          string
+	DatabasePath             string
+	DatabaseURL              string
+	ResendAPIKey             string
+	FromEmail                string
+	ProxyMode                bool
+	OpenAIKey                string
+	AnthropicKey             string
+	TiersConfigPath          string
+	ShutdownTimeout          time.Duration
+	RequireEmailVerification bool
 }
 
 // LicenseData represents license information
 type LicenseData struct {
-	LicenseID     string    `json:"license_id"`
-	CustomerName  string    `json:"customer_name"`
-	CustomerEmail string    `json:"customer_email"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	Tier          string    `json:"tier"`
-	Limits        struct {
+	LicenseID      string    `json:"license_id"`
+	CustomerName   string    `json:"customer_name"`
+	CustomerEmail  string    `json:"customer_email"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	Tier           string    `json:"tier"`
+	EncryptionSalt string    `json:"encryption_salt"` // For Argon2 key derivation
+	Limits         struct {
 		DailyLimit     int `json:"daily_limit"`
 		MonthlyLimit   int `json:"monthly_limit"`
 		MaxActivations int `json:"max_activations"`
@@ -272,6 +277,7 @@ type DecryptedData struct {
 
 func loadConfig() *Config {
 	proxyMode := getEnv("PROXY_MODE", "false") == "true"
+	requireEmailVerification := getEnv("REQUIRE_EMAIL_VERIFICATION", "true") == "true"
 
 	// Parse shutdown timeout with default of 30 seconds
 	shutdownTimeout := 30 * time.Second
@@ -284,18 +290,19 @@ func loadConfig() *Config {
 	}
 
 	return &Config{
-		Port:            getEnv("PORT", DefaultPort),
-		DatabasePath:    getEnv("DB_PATH", DBFile),
-		DatabaseURL:     getEnv("DATABASE_URL", ""),
-		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
-		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
-		FromEmail:       getEnv("FROM_EMAIL", ""),
-		ProtectedAPIKey: getEnv("PROTECTED_API_KEY", ""),
-		ProxyMode:       proxyMode,
-		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
-		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
-		TiersConfigPath: getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
-		ShutdownTimeout: shutdownTimeout,
+		Port:                     getEnv("PORT", DefaultPort),
+		DatabasePath:             getEnv("DB_PATH", DBFile),
+		DatabaseURL:              getEnv("DATABASE_URL", ""),
+		PrivateKeyB64:            getEnv("PRIVATE_KEY", ""),
+		ResendAPIKey:             getEnv("RESEND_API_KEY", ""),
+		FromEmail:                getEnv("FROM_EMAIL", ""),
+		ProtectedAPIKey:          getEnv("PROTECTED_API_KEY", ""),
+		ProxyMode:                proxyMode,
+		OpenAIKey:                getEnv("OPENAI_API_KEY", ""),
+		AnthropicKey:             getEnv("ANTHROPIC_API_KEY", ""),
+		TiersConfigPath:          getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
+		ShutdownTimeout:          shutdownTimeout,
+		RequireEmailVerification: requireEmailVerification,
 	}
 }
 
@@ -326,12 +333,16 @@ func validateConfig(config *Config) error {
 		errors = append(errors, "PROXY_MODE=true requires at least one of OPENAI_API_KEY or ANTHROPIC_API_KEY")
 	}
 
-	// Email configuration for verification (warn only, not fatal)
-	if config.ResendAPIKey == "" {
-		log.Printf("⚠️  RESEND_API_KEY not set - email verification will fail")
-	}
-	if config.FromEmail == "" {
-		log.Printf("⚠️  FROM_EMAIL not set - email verification will fail")
+	// Email configuration for verification (conditional)
+	if config.RequireEmailVerification {
+		if config.ResendAPIKey == "" {
+			log.Printf("⚠️  REQUIRE_EMAIL_VERIFICATION=true but RESEND_API_KEY not set - email verification will fail")
+		}
+		if config.FromEmail == "" {
+			log.Printf("⚠️  REQUIRE_EMAIL_VERIFICATION=true but FROM_EMAIL not set - email verification will fail")
+		}
+	} else {
+		log.Printf("ℹ️  REQUIRE_EMAIL_VERIFICATION=false - email verification disabled (development mode)")
 	}
 
 	// Database configuration
@@ -552,7 +563,7 @@ func handleCheck() http.HandlerFunc {
 	}
 }
 
-func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
+func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -568,6 +579,18 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 		// Validate email
 		if !strings.Contains(req.Email, "@") {
 			sendError(w, "Invalid email address", http.StatusBadRequest)
+			return
+		}
+
+		// If email verification is disabled, return dummy success
+		if !requireEmailVerification {
+			resp := InitResponse{
+				Success: true,
+				Message: "Email verification disabled (development mode). Proceed to /verify with any code.",
+				Email:   req.Email,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -615,7 +638,7 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 	}
 }
 
-func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
+func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -628,42 +651,48 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		// Verify code
-		var storedCode string
-		var expiresAtStr string
-		err := db.QueryRow(fmt.Sprintf(`
-			SELECT code, expires_at FROM verification_codes 
-			WHERE email = %s
-		`, sqlPlaceholder(1)), req.Email).Scan(&storedCode, &expiresAtStr)
+		// If email verification is disabled, skip verification
+		var err error
+		if !requireEmailVerification {
+			log.Printf("Bypassing email verification for %s (development mode)", redactEmail(req.Email))
+		} else {
+			// Verify code
+			var storedCode string
+			var expiresAtStr string
+			err = db.QueryRow(fmt.Sprintf(`
+				SELECT code, expires_at FROM verification_codes 
+				WHERE email = %s
+			`, sqlPlaceholder(1)), req.Email).Scan(&storedCode, &expiresAtStr)
 
-		if err == sql.ErrNoRows {
-			sendError(w, "No verification code found for this email", http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			log.Printf("Database error: %v", err)
-			sendError(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+			if err == sql.ErrNoRows {
+				sendError(w, "No verification code found for this email", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				log.Printf("Database error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 
-		expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
-		if err != nil {
-			log.Printf("Failed to parse expiration time: %v", err)
-			sendError(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+			expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+			if err != nil {
+				log.Printf("Failed to parse expiration time: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 
-		if time.Now().After(expiresAt) {
-			sendError(w, "Verification code expired", http.StatusBadRequest)
-			return
-		}
+			if time.Now().After(expiresAt) {
+				sendError(w, "Verification code expired", http.StatusBadRequest)
+				return
+			}
 
-		log.Printf("Verification attempt: email=%s, match=%v",
-			redactEmail(req.Email), storedCode == req.Code)
+			log.Printf("Verification attempt: email=%s, match=%v",
+				redactEmail(req.Email), storedCode == req.Code)
 
-		if storedCode != req.Code {
-			sendError(w, "Invalid verification code", http.StatusUnauthorized)
-			return
+			if storedCode != req.Code {
+				sendError(w, "Invalid verification code", http.StatusUnauthorized)
+				return
+			}
 		}
 
 		// Check if user already has a license
@@ -690,12 +719,21 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 		licenseKey := generateLicenseKey()
 		expiresAtLicense := time.Now().AddDate(0, 1, 0) // 1 month for free tier
 
+		// Generate encryption salt
+		var encryptionSalt string
+		encryptionSalt, err = generateSalt()
+		if err != nil {
+			log.Printf("Failed to generate salt: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		_, err = db.Exec(fmt.Sprintf(`
 			INSERT INTO licenses (
 license_id, customer_name, customer_email, tier, 
-expires_at, daily_limit, monthly_limit, max_activations, active
-) VALUES (%s, %s, %s, 'free', %s, 10, 10, 3, 1)
-		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)), licenseKey, req.Email, req.Email, expiresAtLicense)
+expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
+) VALUES (%s, %s, %s, 'free', %s, 10, 10, 3, 1, %s)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4), sqlPlaceholder(5)), licenseKey, req.Email, req.Email, expiresAtLicense, encryptionSalt)
 
 		if err != nil {
 			log.Printf("Failed to create license: %v", err)
@@ -1006,9 +1044,11 @@ func getLicense(licenseID string) (*LicenseData, error) {
 	var license LicenseData
 	license.LicenseID = licenseID
 
+	var encryptionSalt sql.NullString
+
 	err := db.QueryRow(fmt.Sprintf(`
 SELECT customer_name, customer_email, tier, expires_at, 
-       daily_limit, monthly_limit, max_activations, active
+       daily_limit, monthly_limit, max_activations, active, encryption_salt
 FROM licenses WHERE license_id = %s
 `, sqlPlaceholder(1)), licenseID).Scan(
 		&license.CustomerName,
@@ -1019,10 +1059,27 @@ FROM licenses WHERE license_id = %s
 		&license.Limits.MonthlyLimit,
 		&license.Limits.MaxActivations,
 		&license.Active,
+		&encryptionSalt,
 	)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("license not found")
+	}
+
+	// If no salt exists (legacy license), generate and store one
+	if !encryptionSalt.Valid || encryptionSalt.String == "" {
+		salt, err := generateSalt()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate salt: %w", err)
+		}
+		_, err = db.Exec(fmt.Sprintf("UPDATE licenses SET encryption_salt = %s WHERE license_id = %s",
+			sqlPlaceholder(1), sqlPlaceholder(2)), salt, licenseID)
+		if err != nil {
+			log.Printf("Warning: Failed to store salt for license %s: %v", redactPII(licenseID), err)
+		}
+		license.EncryptionSalt = salt
+	} else {
+		license.EncryptionSalt = encryptionSalt.String
 	}
 
 	return &license, err
@@ -1124,8 +1181,8 @@ func encryptAPIKeyBundle(protectedAPIKey string, license *LicenseData, licenseKe
 		return "", "", err
 	}
 
-	// Derive key from license + hardware ID (same as client)
-	key := deriveKey(licenseKey, hwID)
+	// Derive key from license + hardware ID + salt using Argon2
+	key := deriveKey(licenseKey, hwID, license.EncryptionSalt)
 
 	// Create cipher
 	block, err := aes.NewCipher(key)
@@ -1155,11 +1212,35 @@ func encryptAPIKeyBundle(protectedAPIKey string, license *LicenseData, licenseKe
 	return encrypted, iv, nil
 }
 
-func deriveKey(licenseKey, hardwareID string) []byte {
-	h := sha256.New()
-	h.Write([]byte(licenseKey))
-	h.Write([]byte(hardwareID))
-	return h.Sum(nil)
+// deriveKey uses Argon2id to derive encryption key from license, hardware ID, and salt
+func deriveKey(licenseKey, hardwareID, salt string) []byte {
+	// Argon2id parameters (recommended for password hashing and key derivation)
+	const (
+		time    = 3        // Number of iterations
+		memory  = 64 * 1024 // Memory cost in KiB (64 MB)
+		threads = 4        // Parallelism
+		keyLen  = 32       // Output key length (AES-256)
+	)
+
+	// Combine license key and hardware ID as the "password"
+	password := []byte(licenseKey + ":" + hardwareID)
+	saltBytes, _ := hex.DecodeString(salt)
+
+	// If salt decode fails (legacy), use salt as-is
+	if len(saltBytes) == 0 {
+		saltBytes = []byte(salt)
+	}
+
+	return argon2.IDKey(password, saltBytes, time, memory, threads, keyLen)
+}
+
+// generateSalt creates a cryptographically secure random salt
+func generateSalt() (string, error) {
+	salt := make([]byte, 32) // 256-bit salt
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(salt), nil
 }
 
 func sendError(w http.ResponseWriter, message string, code int) {
@@ -1295,9 +1376,40 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 
 // ProxyRequest handles proxying to external APIs
 type ProxyRequest struct {
-	ProxyKey string          `json:"proxy_key"` // Generated proxy key from activation
-	Provider string          `json:"provider"`  // "openai" or "anthropic"
-	Body     json.RawMessage `json:"body"`      // Original API request body
+	ProxyKey  string          `json:"proxy_key"`  // Generated proxy key from activation
+	Provider  string          `json:"provider"`   // "openai" or "anthropic"
+	Body      json.RawMessage `json:"body"`       // Original API request body
+	Signature string          `json:"signature"`  // HMAC-SHA256 signature for request authentication
+	Timestamp int64           `json:"timestamp"`  // Unix timestamp to prevent replay attacks
+}
+
+// validateProxySignature validates the HMAC-SHA256 signature on a proxy request
+// Signature is computed as: HMAC-SHA256(proxy_key, timestamp + provider + body)
+func validateProxySignature(proxyKey, provider string, body []byte, timestamp int64, signature string) bool {
+	// Check timestamp (must be within 5 minutes)
+	now := time.Now().Unix()
+	if abs(now-timestamp) > 300 { // 5 minutes
+		return false
+	}
+
+	// Construct message: timestamp + provider + body
+	message := fmt.Sprintf("%d%s%s", timestamp, provider, string(body))
+
+	// Compute HMAC-SHA256
+	h := hmac.New(sha256.New, []byte(proxyKey))
+	h.Write([]byte(message))
+	expectedSignature := hex.EncodeToString(h.Sum(nil))
+
+	// Constant-time comparison to prevent timing attacks
+	return hmac.Equal([]byte(expectedSignature), []byte(signature))
+}
+
+// abs returns absolute value of an int64
+func abs(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // handleProxy forwards requests to external APIs while validating license and rate limits
@@ -1317,6 +1429,13 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		// Validate proxy key format
 		if !strings.HasPrefix(req.ProxyKey, "px_") {
 			sendError(w, "Invalid proxy key format", http.StatusBadRequest)
+			return
+		}
+
+		// Validate HMAC signature
+		if !validateProxySignature(req.ProxyKey, req.Provider, req.Body, req.Timestamp, req.Signature) {
+			log.Printf("Invalid proxy signature for key: %s...", redactPII(req.ProxyKey[:10]))
+			sendError(w, "Invalid signature or expired timestamp", http.StatusUnauthorized)
 			return
 		}
 
@@ -1605,8 +1724,8 @@ func main() {
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
 	http.HandleFunc("/tiers", handleTiers)
-	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail)))
-	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail)))
+	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
+	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
 	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
 	http.HandleFunc("/check", rateLimitMiddleware(handleCheck()))
 	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))

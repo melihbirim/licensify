@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS licenses (
 	monthly_limit INTEGER NOT NULL,
 	max_activations INTEGER NOT NULL,
 	active INTEGER DEFAULT 1,
-	created_at TEXT DEFAULT CURRENT_TIMESTAMP
+	created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+	encryption_salt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS activations (
