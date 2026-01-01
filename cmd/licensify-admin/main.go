@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/melihbirim/licensify/internal/tiers"
 	_ "modernc.org/sqlite"
 )
 
@@ -55,6 +56,10 @@ func main() {
 		handleDeactivate()
 	case "activate":
 		handleActivate()
+	case "tiers":
+		handleTiers()
+	case "migrate":
+		handleMigrate()
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
@@ -76,6 +81,8 @@ func printUsage() {
 	fmt.Println("  get          Get license details")
 	fmt.Println("  activate     Activate a license")
 	fmt.Println("  deactivate   Deactivate a license")
+	fmt.Println("  tiers        Manage tier configuration")
+	fmt.Println("  migrate      Migrate licenses from deprecated tiers")
 	fmt.Println("  version      Show version")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -99,7 +106,7 @@ func handleCreate() {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	email := fs.String("email", "", "Customer email (required)")
 	name := fs.String("name", "", "Customer name (required)")
-	tier := fs.String("tier", "pro", "License tier: free, pro, enterprise")
+	tier := fs.String("tier", "pro", "License tier (use 'tiers list' to see available tiers)")
 	months := fs.Int("months", 12, "License duration in months (0 for lifetime)")
 	dailyLimit := fs.Int("daily", 0, "Daily API limit (0 for tier default, -1 unlimited)")
 	monthlyLimit := fs.Int("monthly", 0, "Monthly API limit (0 for tier default, -1 unlimited)")
@@ -113,10 +120,19 @@ func handleCreate() {
 		os.Exit(1)
 	}
 
-	// Validate tier
-	validTiers := map[string]bool{"free": true, "pro": true, "enterprise": true}
-	if !validTiers[*tier] {
-		fmt.Printf("Error: Invalid tier '%s'. Must be: free, pro, enterprise\n", *tier)
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+	if err := tiers.LoadWithFallback(tiersPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+
+	// Validate tier exists
+	if !tiers.Exists(*tier) {
+		fmt.Printf("Error: Invalid tier '%s'. Available tiers: %v\n", *tier, tiers.List())
+		fmt.Println("Use 'licensify-admin tiers list' to see tier details")
 		os.Exit(1)
 	}
 
@@ -126,38 +142,18 @@ func handleCreate() {
 	}
 	defer db.Close()
 
+	// Get tier configuration
+	tierConfig, _ := tiers.Get(*tier)
+
 	// Set defaults based on tier if not specified
 	if *dailyLimit == 0 {
-		switch *tier {
-		case "free":
-			*dailyLimit = 10
-		case "pro":
-			*dailyLimit = 1000
-		case "enterprise":
-			*dailyLimit = -1
-		}
+		*dailyLimit = tierConfig.DailyLimit
 	}
-
 	if *monthlyLimit == 0 {
-		switch *tier {
-		case "free":
-			*monthlyLimit = 100
-		case "pro":
-			*monthlyLimit = 30000
-		case "enterprise":
-			*monthlyLimit = -1
-		}
+		*monthlyLimit = tierConfig.MonthlyLimit
 	}
-
 	if *maxActivations == 0 {
-		switch *tier {
-		case "free":
-			*maxActivations = 1
-		case "pro":
-			*maxActivations = 3
-		case "enterprise":
-			*maxActivations = -1
-		}
+		*maxActivations = tierConfig.MaxDevices
 	}
 
 	// Generate license key
@@ -199,7 +195,7 @@ func handleCreate() {
 func handleUpgrade() {
 	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
 	oldLicense := fs.String("license", "", "Current license key to upgrade (required)")
-	newTier := fs.String("tier", "", "New tier: free, pro, enterprise (required)")
+	newTier := fs.String("tier", "", "New tier (required - use 'tiers list' to see available)")
 	months := fs.Int("months", 0, "Duration for new license in months (0 to keep same expiry)")
 	sendEmail := fs.Bool("send-email", true, "Send email to customer with new license key")
 
@@ -211,10 +207,19 @@ func handleUpgrade() {
 		os.Exit(1)
 	}
 
-	// Validate tier
-	validTiers := map[string]bool{"free": true, "pro": true, "enterprise": true}
-	if !validTiers[*newTier] {
-		fmt.Printf("Error: Invalid tier '%s'. Must be: free, pro, enterprise\n", *newTier)
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+	if err := tiers.LoadWithFallback(tiersPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+
+	// Validate tier exists
+	if !tiers.Exists(*newTier) {
+		fmt.Printf("Error: Invalid tier '%s'. Available tiers: %v\n", *newTier, tiers.List())
+		fmt.Println("Use 'licensify-admin tiers list' to see tier details")
 		os.Exit(1)
 	}
 
@@ -240,16 +245,11 @@ func handleUpgrade() {
 		log.Fatalf("Failed to get license: %v", err)
 	}
 
-	// Calculate new limits based on tier
-	var dailyLimit, monthlyLimit, maxActivations int
-	switch *newTier {
-	case "free":
-		dailyLimit, monthlyLimit, maxActivations = 10, 100, 1
-	case "pro":
-		dailyLimit, monthlyLimit, maxActivations = 1000, 30000, 3
-	case "enterprise":
-		dailyLimit, monthlyLimit, maxActivations = -1, -1, -1
-	}
+	// Get tier configuration
+	tierConfig, _ := tiers.Get(*newTier)
+	dailyLimit := tierConfig.DailyLimit
+	monthlyLimit := tierConfig.MonthlyLimit
+	maxActivations := tierConfig.MaxDevices
 
 	// Calculate new expiry
 	var newExpiresAt time.Time
@@ -770,6 +770,471 @@ func sendUpgradeEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTier, n
 		From:    fromEmail,
 		To:      []string{toEmail},
 		Subject: fmt.Sprintf("Your License Has Been %s to %s!", strings.Title(tierAction), strings.ToUpper(newTier)),
+		HTML:    htmlBody,
+	}
+
+	jsonData, err := json.Marshal(emailReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal email request: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+resendAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("resend API returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func handleTiers() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: licensify-admin tiers <subcommand>")
+		fmt.Println()
+		fmt.Println("Subcommands:")
+		fmt.Println("  list      List all available tiers with details")
+		fmt.Println("  get       Get specific tier configuration")
+		fmt.Println("  validate  Validate tiers.toml configuration")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  licensify-admin tiers list")
+		fmt.Println("  licensify-admin tiers get -name tier-2")
+		fmt.Println("  licensify-admin tiers validate")
+		fmt.Println()
+		fmt.Println("Tier Naming Convention:")
+		fmt.Println("  Use numeric IDs: tier-1, tier-2, tier-3, tier-100, etc.")
+		fmt.Println("  Allows easy tier management and migration paths")
+		os.Exit(1)
+	}
+
+	subcommand := os.Args[2]
+
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+
+	switch subcommand {
+	case "list":
+		if err := tiers.LoadWithFallback(tiersPath); err != nil {
+			log.Fatalf("Failed to load tier configuration: %v", err)
+		}
+
+		allTiers := tiers.GetAll()
+		if len(allTiers) == 0 {
+			fmt.Println("No tiers configured")
+			return
+		}
+
+		fmt.Println("Available Tiers:")
+		fmt.Println(strings.Repeat("=", 100))
+		for name, tier := range allTiers {
+			deprecatedMarker := ""
+			if tier.Deprecated {
+				deprecatedMarker = " [DEPRECATED]"
+			}
+			fmt.Printf("\n📦 %s (%s)%s\n", strings.ToUpper(name), tier.Name, deprecatedMarker)
+			fmt.Println(strings.Repeat("-", 100))
+			fmt.Printf("  Daily Limit:       %s\n", formatLimit(tier.DailyLimit))
+			fmt.Printf("  Monthly Limit:     %s\n", formatLimit(tier.MonthlyLimit))
+			fmt.Printf("  Max Devices:       %s\n", formatLimit(tier.MaxDevices))
+			fmt.Printf("  Features:          %s\n", strings.Join(tier.Features, ", "))
+			fmt.Printf("  Email Verification: %v\n", tier.EmailVerificationRequired)
+			if tier.PriceMonthly > 0 {
+				fmt.Printf("  Price (Monthly):   $%.2f\n", tier.PriceMonthly)
+			}
+			if tier.OneTimePayment > 0 {
+				fmt.Printf("  Price (Lifetime):  $%.2f\n", tier.OneTimePayment)
+			}
+			if tier.CustomPricing {
+				fmt.Printf("  Custom Pricing:    Yes\n")
+			}
+			if tier.Hidden {
+				fmt.Printf("  Hidden:            Yes (not visible in public listings)\n")
+			}
+			if tier.Deprecated {
+				fmt.Printf("  ⚠️  DEPRECATED:      Yes")
+				if tier.MigrateTo != "" {
+					fmt.Printf(" → Migrate to: %s\n", tier.MigrateTo)
+				} else {
+					fmt.Printf("\n")
+				}
+			}
+			fmt.Printf("  Description:       %s\n", tier.Description)
+		}
+		fmt.Println(strings.Repeat("=", 100))
+		fmt.Printf("\nTotal: %d tiers\n", len(allTiers))
+
+	case "get":
+		fs := flag.NewFlagSet("get", flag.ExitOnError)
+		tierName := fs.String("name", "", "Tier name (required)")
+		fs.Parse(os.Args[3:])
+
+		if *tierName == "" {
+			fmt.Println("Error: -name is required")
+			fs.PrintDefaults()
+			os.Exit(1)
+		}
+
+		if err := tiers.LoadWithFallback(tiersPath); err != nil {
+			log.Fatalf("Failed to load tier configuration: %v", err)
+		}
+
+		tier, err := tiers.Get(*tierName)
+		if err != nil {
+			fmt.Printf("❌ %v\n", err)
+			fmt.Printf("Available tiers: %v\n", tiers.List())
+			os.Exit(1)
+		}
+
+		fmt.Printf("\n📦 %s (%s)\n", strings.ToUpper(*tierName), tier.Name)
+		fmt.Println(strings.Repeat("=", 60))
+		fmt.Printf("Daily Limit:           %s\n", formatLimit(tier.DailyLimit))
+		fmt.Printf("Monthly Limit:         %s\n", formatLimit(tier.MonthlyLimit))
+		fmt.Printf("Max Devices:           %s\n", formatLimit(tier.MaxDevices))
+		fmt.Printf("Features:              %s\n", strings.Join(tier.Features, ", "))
+		fmt.Printf("Email Verification:    %v\n", tier.EmailVerificationRequired)
+		if tier.PriceMonthly > 0 {
+			fmt.Printf("Price (Monthly):       $%.2f\n", tier.PriceMonthly)
+		}
+		if tier.OneTimePayment > 0 {
+			fmt.Printf("Price (Lifetime):      $%.2f\n", tier.OneTimePayment)
+		}
+		if tier.CustomPricing {
+			fmt.Printf("Custom Pricing:        Yes\n")
+		}
+		if tier.Hidden {
+			fmt.Printf("Hidden:                Yes\n")
+		}
+		if tier.Deprecated {
+			fmt.Printf("⚠️  DEPRECATED:         Yes")
+			if tier.MigrateTo != "" {
+				fmt.Printf(" → Migrate to: %s\n", tier.MigrateTo)
+			} else {
+				fmt.Printf("\n")
+			}
+		}
+		fmt.Printf("Description:           %s\n", tier.Description)
+		fmt.Println(strings.Repeat("=", 60))
+
+	case "validate":
+		fmt.Printf("Validating tier configuration: %s\n", tiersPath)
+
+		if err := tiers.Load(tiersPath); err != nil {
+			fmt.Printf("❌ Validation failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		allTiers := tiers.GetAll()
+		fmt.Printf("✅ Configuration is valid!\n")
+		fmt.Printf("   Found %d tier(s): %v\n", len(allTiers), tiers.List())
+
+		// Check for common issues and deprecations
+		warnings := []string{}
+		deprecatedCount := 0
+		for name, tier := range allTiers {
+			if tier.DailyLimit > tier.MonthlyLimit && tier.MonthlyLimit != -1 {
+				warnings = append(warnings, fmt.Sprintf("tier '%s': daily_limit (%d) > monthly_limit (%d)", name, tier.DailyLimit, tier.MonthlyLimit))
+			}
+			if len(tier.Features) == 0 {
+				warnings = append(warnings, fmt.Sprintf("tier '%s': no features defined", name))
+			}
+			if tier.Deprecated {
+				deprecatedCount++
+				if tier.MigrateTo == "" {
+					warnings = append(warnings, fmt.Sprintf("tier '%s': deprecated but no migrate_to target specified", name))
+				}
+			}
+		}
+
+		if deprecatedCount > 0 {
+			fmt.Printf("   ⚠️  %d deprecated tier(s) found\n", deprecatedCount)
+		}
+
+		if len(warnings) > 0 {
+			fmt.Println("\n⚠️  Warnings:")
+			for _, warning := range warnings {
+				fmt.Printf("   - %s\n", warning)
+			}
+		}
+
+	default:
+		fmt.Printf("Unknown subcommand: %s\n", subcommand)
+		os.Exit(1)
+	}
+}
+
+func handleMigrate() {
+	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	fromTier := fs.String("from", "", "Source tier to migrate from (required)")
+	toTier := fs.String("to", "", "Target tier to migrate to (optional - uses tier config if not specified)")
+	dryRun := fs.Bool("dry-run", false, "Show what would be migrated without making changes")
+	sendEmail := fs.Bool("send-email", true, "Send email notifications to migrated customers")
+
+	fs.Parse(os.Args[2:])
+
+	if *fromTier == "" {
+		fmt.Println("Error: -from is required")
+		fs.PrintDefaults()
+		os.Exit(1)
+	}
+
+	// Load tier configuration
+	tiersPath := os.Getenv("TIERS_CONFIG_PATH")
+	if tiersPath == "" {
+		tiersPath = "tiers.toml"
+	}
+	if err := tiers.LoadWithFallback(tiersPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+
+	// Validate source tier exists
+	if !tiers.Exists(*fromTier) {
+		fmt.Printf("❌ Source tier '%s' not found. Available tiers: %v\n", *fromTier, tiers.List())
+		os.Exit(1)
+	}
+
+	// Determine target tier
+	targetTier := *toTier
+	if targetTier == "" {
+		// Check if source tier has a migration target
+		migrationTarget, err := tiers.GetMigrationTarget(*fromTier)
+		if err != nil {
+			fmt.Printf("❌ %v\n", err)
+			fmt.Println("Please specify -to flag to set the migration target manually")
+			os.Exit(1)
+		}
+		targetTier = migrationTarget
+		fmt.Printf("ℹ️  Using configured migration target: %s → %s\n", *fromTier, targetTier)
+	} else {
+		// Validate target tier exists
+		if !tiers.Exists(targetTier) {
+			fmt.Printf("❌ Target tier '%s' not found. Available tiers: %v\n", targetTier, tiers.List())
+			os.Exit(1)
+		}
+	}
+
+	if *fromTier == targetTier {
+		fmt.Println("❌ Source and target tiers cannot be the same")
+		os.Exit(1)
+	}
+
+	// Connect to database
+	if err := initDB(); err != nil {
+		log.Fatalf("Database error: %v", err)
+	}
+	defer db.Close()
+
+	// Get source and target tier configurations (use GetRaw to get actual tier data, not migration target)
+	sourceTierConfig, _ := tiers.GetRaw(*fromTier)
+	targetTierConfig, _ := tiers.GetRaw(targetTier)
+
+	// Find all licenses on the source tier
+	query := fmt.Sprintf("SELECT license_id, customer_name, customer_email, expires_at FROM licenses WHERE tier = %s AND active = true", sqlPlaceholder(1))
+	rows, err := db.Query(query, *fromTier)
+	if err != nil {
+		log.Fatalf("Failed to query licenses: %v", err)
+	}
+	defer rows.Close()
+
+	type LicenseInfo struct {
+		LicenseID string
+		Name      string
+		Email     string
+		ExpiresAt time.Time
+	}
+
+	licenses := []LicenseInfo{}
+	for rows.Next() {
+		var lic LicenseInfo
+		if err := rows.Scan(&lic.LicenseID, &lic.Name, &lic.Email, &lic.ExpiresAt); err != nil {
+			log.Printf("Error scanning row: %v", err)
+			continue
+		}
+		licenses = append(licenses, lic)
+	}
+
+	if len(licenses) == 0 {
+		fmt.Printf("✅ No active licenses found on tier '%s'\n", *fromTier)
+		return
+	}
+
+	fmt.Printf("\n📋 Migration Plan: %s → %s\n", *fromTier, targetTier)
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("Source Tier:  %s (%s)\n", *fromTier, sourceTierConfig.Name)
+	fmt.Printf("Target Tier:  %s (%s)\n", targetTier, targetTierConfig.Name)
+	fmt.Printf("Licenses:     %d active licenses will be migrated\n", len(licenses))
+	fmt.Println()
+	fmt.Printf("Limit Changes:\n")
+	fmt.Printf("  Daily:      %s → %s\n", formatLimit(sourceTierConfig.DailyLimit), formatLimit(targetTierConfig.DailyLimit))
+	fmt.Printf("  Monthly:    %s → %s\n", formatLimit(sourceTierConfig.MonthlyLimit), formatLimit(targetTierConfig.MonthlyLimit))
+	fmt.Printf("  Max Devices: %s → %s\n", formatLimit(sourceTierConfig.MaxDevices), formatLimit(targetTierConfig.MaxDevices))
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println()
+
+	if *dryRun {
+		fmt.Println("🔍 DRY RUN - No changes will be made")
+		fmt.Println("\nLicenses that would be migrated:")
+		for i, lic := range licenses {
+			fmt.Printf("  %d. %s - %s (%s) - Expires: %s\n",
+				i+1, lic.LicenseID, lic.Name, lic.Email, lic.ExpiresAt.Format("2006-01-02"))
+		}
+		fmt.Println("\nRun without -dry-run to perform the migration")
+		return
+	}
+
+	// Confirm migration
+	fmt.Print("\n⚠️  This will update licenses in the database. Continue? (yes/no): ")
+	var confirmation string
+	fmt.Scanln(&confirmation)
+	if strings.ToLower(confirmation) != "yes" {
+		fmt.Println("Migration cancelled")
+		return
+	}
+
+	// Perform migration
+	fmt.Println("\n🔄 Migrating licenses...")
+	updateQuery := fmt.Sprintf(`
+		UPDATE licenses 
+		SET tier = %s, 
+		    daily_limit = %s, 
+		    monthly_limit = %s, 
+		    max_activations = %s
+		WHERE license_id = %s
+	`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4), sqlPlaceholder(5))
+
+	successCount := 0
+	failCount := 0
+
+	for i, lic := range licenses {
+		_, err := db.Exec(updateQuery,
+			targetTier,
+			targetTierConfig.DailyLimit,
+			targetTierConfig.MonthlyLimit,
+			targetTierConfig.MaxDevices,
+			lic.LicenseID)
+
+		if err != nil {
+			fmt.Printf("  ❌ %d. %s - Failed: %v\n", i+1, lic.LicenseID, err)
+			failCount++
+			continue
+		}
+
+		fmt.Printf("  ✅ %d. %s - %s (%s)\n", i+1, lic.LicenseID, lic.Name, lic.Email)
+		successCount++
+
+		// Send email notification if enabled
+		if *sendEmail {
+			resendAPIKey := os.Getenv("RESEND_API_KEY")
+			fromEmail := os.Getenv("FROM_EMAIL")
+
+			if resendAPIKey != "" && fromEmail != "" {
+				if err := sendMigrationEmail(resendAPIKey, fromEmail, lic.Email, lic.Name,
+					*fromTier, sourceTierConfig.Name, targetTier, targetTierConfig.Name,
+					targetTierConfig.DailyLimit, lic.LicenseID); err != nil {
+					fmt.Printf("     ⚠️  Failed to send email: %v\n", err)
+				} else {
+					fmt.Printf("     📧 Email sent\n")
+				}
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("✅ Migration completed: %d succeeded, %d failed\n", successCount, failCount)
+	fmt.Println(strings.Repeat("=", 80))
+}
+
+func sendMigrationEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTierID, oldTierName, newTierID, newTierName string, newDailyLimit int, licenseKey string) error {
+	type EmailRequest struct {
+		From    string   `json:"from"`
+		To      []string `json:"to"`
+		Subject string   `json:"subject"`
+		HTML    string   `json:"html"`
+	}
+
+	limitText := fmt.Sprintf("%d requests/day", newDailyLimit)
+	if newDailyLimit == -1 {
+		limitText = "unlimited requests"
+	}
+
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .tier-box { background: white; border: 2px solid #667eea; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .migration-arrow { text-align: center; font-size: 24px; color: #667eea; margin: 10px 0; }
+        .footer { text-align: center; color: #999; font-size: 12px; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📦 Your License Tier Has Been Updated</h1>
+        </div>
+        <div class="content">
+            <p>Hi %s,</p>
+            
+            <p>We're writing to inform you that your license tier has been migrated to a new plan:</p>
+            
+            <div class="tier-box">
+                <h3>Previous Tier</h3>
+                <p><strong>%s</strong> (%s)</p>
+            </div>
+            
+            <div class="migration-arrow">↓</div>
+            
+            <div class="tier-box">
+                <h3>New Tier</h3>
+                <p><strong>%s</strong> (%s)</p>
+                <p><strong>New Limits:</strong> %s</p>
+            </div>
+            
+            <h3>What This Means:</h3>
+            <ul>
+                <li>Your license key remains the same: <code>%s</code></li>
+                <li>No action is required from you</li>
+                <li>Your new limits are now active</li>
+            </ul>
+            
+            <p>If you have any questions about this migration, please don't hesitate to reach out to our support team.</p>
+            
+            <p>Best regards,<br>
+            The Licensify Team</p>
+        </div>
+        
+        <div class="footer">
+            <p>This is an automated email from Licensify License Management System.</p>
+        </div>
+    </div>
+</body>
+</html>
+	`, customerName, oldTierName, oldTierID, newTierName, newTierID, limitText, licenseKey)
+
+	emailReq := EmailRequest{
+		From:    fromEmail,
+		To:      []string{toEmail},
+		Subject: fmt.Sprintf("Your License Has Been Migrated to %s", newTierName),
 		HTML:    htmlBody,
 	}
 

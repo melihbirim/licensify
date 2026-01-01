@@ -52,7 +52,8 @@ Licensify solves both in one self-hosted deployment:
 
 - 🔐 **Two Operation Modes**: Direct (encrypted key delivery) or Proxy (keys never leave server)
 - 🔑 **AI API Protection**: OpenAI and Anthropic support with server-side proxying
-- 🎚️ **Multi-tier Licensing**: Free/Pro/Enterprise with configurable limits
+- 🎚️ **Multi-tier Licensing**: Flexible tier system (tier-1, tier-2, tier-N) with TOML configuration
+- 🔄 **Tier Deprecation & Migration**: Seamlessly migrate users from old to new tiers without code changes
 - 📊 **Rate Limiting**: Per-license quotas + per-IP DDoS protection
 - 🖥️ **Hardware Binding**: Prevent license sharing across devices
 - ✉️ **Email Verification**: Free tier with verification flow via Resend
@@ -331,6 +332,109 @@ SELECT * FROM activations WHERE license_id='LIC-...';
 # Deactivate license
 UPDATE licenses SET active=false WHERE license_id='LIC-...';
 ```
+
+## Tier Management
+
+Licensify supports flexible tier management with TOML configuration. Define tiers with numeric naming (tier-1, tier-2, tier-N) for easy lifecycle management.
+
+### Configuration
+
+Create `tiers.toml` in your deployment directory:
+
+```toml
+[tiers.tier-1]
+name = "Free"
+daily_limit = 10
+monthly_limit = 100
+max_devices = 1
+features = ["basic_api_access"]
+email_verification_required = true
+description = "Perfect for trying out the service"
+
+[tiers.tier-2]
+name = "Professional"
+daily_limit = 1000
+monthly_limit = 30000
+max_devices = 3
+price_monthly = 29.99
+description = "For individual developers and small teams"
+
+[tiers.tier-3]
+name = "Enterprise"
+daily_limit = -1  # -1 means unlimited
+monthly_limit = -1
+max_devices = -1
+price_monthly = 299.99
+description = "Unlimited access with dedicated support"
+```
+
+Set the config path via environment variable or use default:
+```bash
+TIERS_CONFIG_PATH=tiers.toml ./licensify
+```
+
+### Tier Deprecation & Migration
+
+Deprecate old tiers and automatically migrate users to new ones:
+
+```toml
+[tiers.tier-1]
+name = "Free (Legacy)"
+daily_limit = 10
+monthly_limit = 100
+max_devices = 1
+deprecated = true
+migrate_to = "tier-11"  # Migration target
+
+[tiers.tier-11]
+name = "Free V2"
+daily_limit = 20  # Better limits
+monthly_limit = 200
+max_devices = 2
+description = "New improved free tier"
+```
+
+**Admin CLI Commands:**
+
+```bash
+# List all tiers (shows deprecated markers)
+./licensify-admin tiers list
+
+# Validate tier configuration
+./licensify-admin tiers validate
+
+# Get specific tier details
+./licensify-admin tiers get tier-1
+
+# Dry-run migration preview
+./licensify-admin migrate -from tier-1 -dry-run
+
+# Migrate all users from deprecated tier
+./licensify-admin migrate -from tier-1
+
+# Migrate to specific tier (override config)
+./licensify-admin migrate -from tier-1 -to tier-2
+
+# Disable email notifications
+./licensify-admin migrate -from tier-1 -send-email=false
+```
+
+**Migration Process:**
+- Validates source and target tiers exist
+- Shows preview with limit changes
+- Requires confirmation before proceeding
+- Updates tier and limits in database
+- Optionally sends email to each customer
+- Provides detailed success/failure report
+
+**Benefits:**
+- No code changes required
+- Flexible numeric naming (tier-1, tier-11, tier-100)
+- Safe batch migrations with dry-run mode
+- Automatic email notifications
+- Clear audit trail
+
+📚 **Full Documentation:** [docs/tier-migration.md](docs/tier-migration.md)
 
 ## License
 

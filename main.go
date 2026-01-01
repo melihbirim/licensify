@@ -23,6 +23,7 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/melihbirim/licensify/internal/tiers"
 	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
 )
@@ -109,6 +110,7 @@ type Config struct {
 	ProxyMode       bool
 	OpenAIKey       string
 	AnthropicKey    string
+	TiersConfigPath string
 }
 
 // LicenseData represents license information
@@ -224,6 +226,7 @@ func loadConfig() *Config {
 		ProxyMode:       proxyMode,
 		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
 		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
+		TiersConfigPath: getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
 	}
 }
 
@@ -404,6 +407,53 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":    Version,
 		"git_commit": GitCommit,
 		"build_time": BuildTime,
+	})
+}
+
+// TierInfo represents public tier information
+type TierInfo struct {
+	Name                      string   `json:"name"`
+	DailyLimit                int      `json:"daily_limit"`
+	MonthlyLimit              int      `json:"monthly_limit"`
+	MaxDevices                int      `json:"max_devices"`
+	Features                  []string `json:"features"`
+	Description               string   `json:"description"`
+	PriceMonthly              float64  `json:"price_monthly,omitempty"`
+	OneTimePayment            float64  `json:"one_time_payment,omitempty"`
+	CustomPricing             bool     `json:"custom_pricing,omitempty"`
+	EmailVerificationRequired bool     `json:"email_verification_required"`
+}
+
+func handleTiers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get all visible tiers
+	allTiers := tiers.GetAllVisible()
+
+	// Convert to response format
+	response := make(map[string]TierInfo)
+	for name, tier := range allTiers {
+		response[name] = TierInfo{
+			Name:                      tier.Name,
+			DailyLimit:                tier.DailyLimit,
+			MonthlyLimit:              tier.MonthlyLimit,
+			MaxDevices:                tier.MaxDevices,
+			Features:                  tier.Features,
+			Description:               tier.Description,
+			PriceMonthly:              tier.PriceMonthly,
+			OneTimePayment:            tier.OneTimePayment,
+			CustomPricing:             tier.CustomPricing,
+			EmailVerificationRequired: tier.EmailVerificationRequired,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"tiers":   response,
 	})
 }
 
@@ -1481,6 +1531,12 @@ func main() {
 	// Load configuration
 	config := loadConfig()
 
+	// Load tier configuration
+	if err := tiers.LoadWithFallback(config.TiersConfigPath); err != nil {
+		log.Fatalf("Failed to load tier configuration: %v", err)
+	}
+	log.Printf("📋 Loaded tiers: %v", tiers.List())
+
 	// Initialize database
 	if err := initDB(config.DatabasePath, config.DatabaseURL); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -1496,6 +1552,7 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
+	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail)))
 	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail)))
 	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
