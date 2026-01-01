@@ -41,7 +41,7 @@ var (
 	isPostgresDB bool // Track database type
 
 	// Build information (set via ldflags)
-	Version   = "1.0.0"
+	Version   = "1.1.0"
 	GitCommit = "unknown"
 	BuildTime = "unknown"
 
