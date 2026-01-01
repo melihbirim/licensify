@@ -46,8 +46,9 @@ var (
 	BuildTime = "unknown"
 
 	// Rate limiting
-	ipLimiters   = make(map[string]*rate.Limiter)
-	ipLimitersMu sync.RWMutex
+	ipLimiters       = make(map[string]*rate.Limiter)
+	ipLimitersMu     sync.RWMutex
+	ipLimiterCleanup = 5 * time.Minute // Cleanup interval for rate limiters
 )
 
 // sqlPlaceholder returns the correct SQL placeholder for the database type
@@ -56,6 +57,37 @@ func sqlPlaceholder(n int) string {
 		return fmt.Sprintf("$%d", n)
 	}
 	return "?"
+}
+
+// redactPII returns a redacted version of sensitive data for logging
+// Shows first 4 and last 4 characters for identification without full exposure
+func redactPII(s string) string {
+	if len(s) <= 8 {
+		return "***"
+	}
+	return s[:4] + "..." + s[len(s)-4:]
+}
+
+// redactEmail redacts email addresses for logging
+func redactEmail(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return "***@***"
+	}
+	username := parts[0]
+	domain := parts[1]
+
+	if len(username) <= 2 {
+		return "***@" + domain
+	}
+	return username[:min(2, len(username))] + "***@" + domain
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // getIPLimiter returns rate limiter for IP address
@@ -72,6 +104,29 @@ func getIPLimiter(ip string) *rate.Limiter {
 	}
 
 	return limiter
+}
+
+// cleanupIPLimiters periodically removes inactive limiters to prevent memory leaks
+func cleanupIPLimiters(ctx context.Context) {
+	ticker := time.NewTicker(ipLimiterCleanup)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ipLimitersMu.Lock()
+			// Remove limiters that have had no recent activity
+			for ip, limiter := range ipLimiters {
+				// If limiter has full tokens (unused), remove it
+				if limiter.Tokens() >= 20 {
+					delete(ipLimiters, ip)
+				}
+			}
+			ipLimitersMu.Unlock()
+		}
+	}
 }
 
 // rateLimitMiddleware enforces per-IP rate limiting
@@ -224,24 +279,71 @@ func loadConfig() *Config {
 		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
 			shutdownTimeout = parsed
 		} else {
-			log.Printf("⚠️  Invalid SHUTDOWN_TIMEOUT value '%s', using default 30s", timeoutStr)
+			log.Printf("⚠️  Invalid SHUTDOWN_TIMEOUT format, using default 30s")
 		}
 	}
 
 	return &Config{
 		Port:            getEnv("PORT", DefaultPort),
-		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
-		ProtectedAPIKey: getEnv("PROTECTED_API_KEY", ""),
 		DatabasePath:    getEnv("DB_PATH", DBFile),
 		DatabaseURL:     getEnv("DATABASE_URL", ""),
+		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
-		FromEmail:       getEnv("FROM_EMAIL", "noreply@licensify.com"),
+		FromEmail:       getEnv("FROM_EMAIL", ""),
+		ProtectedAPIKey: getEnv("PROTECTED_API_KEY", ""),
 		ProxyMode:       proxyMode,
 		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
 		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
 		TiersConfigPath: getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
 		ShutdownTimeout: shutdownTimeout,
 	}
+}
+
+// validateConfig checks that required configuration is present and valid
+func validateConfig(config *Config) error {
+	var errors []string
+
+	// Required: Private key for license signing
+	if config.PrivateKeyB64 == "" {
+		errors = append(errors, "PRIVATE_KEY is required for license signature verification")
+	} else {
+		// Validate it's valid base64 and correct length
+		keyBytes, err := base64.StdEncoding.DecodeString(config.PrivateKeyB64)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("PRIVATE_KEY is not valid base64: %v", err))
+		} else if len(keyBytes) != ed25519.PrivateKeySize {
+			errors = append(errors, fmt.Sprintf("PRIVATE_KEY has invalid length: got %d, want %d bytes", len(keyBytes), ed25519.PrivateKeySize))
+		}
+	}
+
+	// Required for direct mode: Protected API key
+	if !config.ProxyMode && config.ProtectedAPIKey == "" {
+		errors = append(errors, "PROTECTED_API_KEY is required when PROXY_MODE=false")
+	}
+
+	// Required for proxy mode: At least one upstream API key
+	if config.ProxyMode && config.OpenAIKey == "" && config.AnthropicKey == "" {
+		errors = append(errors, "PROXY_MODE=true requires at least one of OPENAI_API_KEY or ANTHROPIC_API_KEY")
+	}
+
+	// Email configuration for verification (warn only, not fatal)
+	if config.ResendAPIKey == "" {
+		log.Printf("⚠️  RESEND_API_KEY not set - email verification will fail")
+	}
+	if config.FromEmail == "" {
+		log.Printf("⚠️  FROM_EMAIL not set - email verification will fail")
+	}
+
+	// Database configuration
+	if config.DatabaseURL == "" && config.DatabasePath == "" {
+		errors = append(errors, "Either DATABASE_URL (PostgreSQL) or DB_PATH (SQLite) must be set")
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errors, "\n  - "))
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -278,6 +380,23 @@ func initDB(dbPath, dbURL string) error {
 	// Test connection
 	if err = db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Enable WAL mode for SQLite for better concurrency and durability
+	if !isPostgresDB {
+		pragmas := []string{
+			"PRAGMA journal_mode=WAL;",   // Write-Ahead Logging for better concurrency
+			"PRAGMA synchronous=NORMAL;", // Balance between safety and performance
+			"PRAGMA foreign_keys=ON;",    // Enforce foreign key constraints
+			"PRAGMA busy_timeout=5000;",  // Wait up to 5s if database is locked
+			"PRAGMA cache_size=-64000;",  // 64MB cache
+		}
+		for _, pragma := range pragmas {
+			if _, err := db.Exec(pragma); err != nil {
+				log.Printf("⚠️  Failed to set SQLite pragma: %v", err)
+			}
+		}
+		log.Printf("📊 SQLite WAL mode enabled for better concurrency")
 	}
 
 	// Load and execute schema from SQL files
@@ -484,7 +603,7 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Sent verification code to %s", req.Email)
+		log.Printf("Sent verification code to %s", redactEmail(req.Email))
 
 		resp := InitResponse{
 			Success: true,
@@ -539,8 +658,8 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Verification attempt: email=%s, provided=%s, stored=%s, match=%v",
-			req.Email, req.Code, storedCode, storedCode == req.Code)
+		log.Printf("Verification attempt: email=%s, match=%v",
+			redactEmail(req.Email), storedCode == req.Code)
 
 		if storedCode != req.Code {
 			sendError(w, "Invalid verification code", http.StatusUnauthorized)
@@ -593,7 +712,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active
 			// Don't fail - license is already created
 		}
 
-		log.Printf("Created FREE license for %s: %s", req.Email, licenseKey)
+		log.Printf("Created FREE license for %s: %s", redactEmail(req.Email), redactPII(licenseKey))
 
 		resp := VerifyResponse{
 			Success:    true,
@@ -683,7 +802,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 		if len(req.HardwareID) > 8 {
 			hwPrefix = req.HardwareID[:8] + "..."
 		}
-		log.Printf("Activation request: license=%s, hardware=%s", req.LicenseKey, hwPrefix)
+		log.Printf("Activation request: license=%s, hardware=%s", redactPII(req.LicenseKey), hwPrefix)
 
 		// Validate license key exists
 		license, err := getLicense(req.LicenseKey)
@@ -699,7 +818,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 			if len(req.HardwareID) > 8 {
 				hwPrefix = req.HardwareID[:8] + "..."
 			}
-			log.Printf("Hardware %s already has an active free license, blocking new free license %s", hwPrefix, req.LicenseKey)
+			log.Printf("Hardware %s already has an active free license, blocking new free license %s", hwPrefix, redactPII(req.LicenseKey))
 			sendError(w, "This device already has an active FREE license. Each device is limited to one free license.", http.StatusForbidden)
 			return
 		}
@@ -744,9 +863,9 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				sendError(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			log.Printf("New activation recorded for license %s", req.LicenseKey)
+			log.Printf("New activation recorded for license %s", redactPII(req.LicenseKey))
 		} else {
-			log.Printf("Re-activation on existing hardware for license %s", req.LicenseKey)
+			log.Printf("Re-activation on existing hardware for license %s", redactPII(req.LicenseKey))
 		}
 
 		// Record check-in
@@ -794,7 +913,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 					MaxActivations: license.Limits.MaxActivations,
 				},
 			}
-			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", req.LicenseKey, proxyKey[:10])
+			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
 		} else {
 			// Normal mode: encrypt the protected API key
 			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
@@ -821,7 +940,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 					MaxActivations: license.Limits.MaxActivations,
 				},
 			}
-			log.Printf("✅ Activation successful for %s", req.LicenseKey)
+			log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1426,7 +1545,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 
-		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, licenseID, currentUsage+1, dailyLimit)
+		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, redactPII(licenseID), currentUsage+1, dailyLimit)
 	}
 }
 
@@ -1454,6 +1573,11 @@ func main() {
 	// Load configuration
 	config := loadConfig()
 
+	// Validate configuration before proceeding
+	if err := validateConfig(config); err != nil {
+		log.Fatalf("❌ Configuration error:\n%v\n\nPlease check your environment variables and try again.", err)
+	}
+
 	// Load tier configuration
 	if err := tiers.LoadWithFallback(config.TiersConfigPath); err != nil {
 		log.Fatalf("Failed to load tier configuration: %v", err)
@@ -1466,12 +1590,17 @@ func main() {
 	}
 	defer db.Close()
 
-	// Load private key
+	// Load private key (already validated in validateConfig)
 	privKeyBytes, err := base64.StdEncoding.DecodeString(config.PrivateKeyB64)
 	if err != nil {
 		log.Fatalf("Failed to decode private key: %v", err)
 	}
 	privateKey = ed25519.PrivateKey(privKeyBytes)
+
+	// Start background cleanup for rate limiters
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cleanupIPLimiters(ctx)
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
@@ -1550,11 +1679,11 @@ func main() {
 	// Graceful shutdown
 	log.Printf("🔄 Shutting down server gracefully (timeout: %v)...", config.ShutdownTimeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+	defer shutdownCancel()
 
 	// Attempt graceful shutdown
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("❌ Server forced to shutdown: %v", err)
 		return
 	}
