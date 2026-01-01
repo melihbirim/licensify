@@ -393,6 +393,16 @@ func initDB(dbPath, dbURL string) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Configure connection pool settings
+	if isPostgresDB {
+		// PostgreSQL connection pool configuration
+		db.SetMaxOpenConns(25)                  // Maximum number of open connections
+		db.SetMaxIdleConns(5)                   // Maximum number of idle connections
+		db.SetConnMaxLifetime(5 * time.Minute)  // Maximum lifetime of a connection
+		db.SetConnMaxIdleTime(10 * time.Minute) // Maximum idle time before closing
+		log.Printf("📊 PostgreSQL connection pool configured (max_open=25, max_idle=5)")
+	}
+
 	// Enable WAL mode for SQLite for better concurrency and durability
 	if !isPostgresDB {
 		pragmas := []string{
@@ -1216,10 +1226,10 @@ func encryptAPIKeyBundle(protectedAPIKey string, license *LicenseData, licenseKe
 func deriveKey(licenseKey, hardwareID, salt string) []byte {
 	// Argon2id parameters (recommended for password hashing and key derivation)
 	const (
-		time    = 3        // Number of iterations
+		time    = 3         // Number of iterations
 		memory  = 64 * 1024 // Memory cost in KiB (64 MB)
-		threads = 4        // Parallelism
-		keyLen  = 32       // Output key length (AES-256)
+		threads = 4         // Parallelism
+		keyLen  = 32        // Output key length (AES-256)
 	)
 
 	// Combine license key and hardware ID as the "password"
@@ -1376,11 +1386,11 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 
 // ProxyRequest handles proxying to external APIs
 type ProxyRequest struct {
-	ProxyKey  string          `json:"proxy_key"`  // Generated proxy key from activation
-	Provider  string          `json:"provider"`   // "openai" or "anthropic"
-	Body      json.RawMessage `json:"body"`       // Original API request body
-	Signature string          `json:"signature"`  // HMAC-SHA256 signature for request authentication
-	Timestamp int64           `json:"timestamp"`  // Unix timestamp to prevent replay attacks
+	ProxyKey  string          `json:"proxy_key"` // Generated proxy key from activation
+	Provider  string          `json:"provider"`  // "openai" or "anthropic"
+	Body      json.RawMessage `json:"body"`      // Original API request body
+	Signature string          `json:"signature"` // HMAC-SHA256 signature for request authentication
+	Timestamp int64           `json:"timestamp"` // Unix timestamp to prevent replay attacks
 }
 
 // validateProxySignature validates the HMAC-SHA256 signature on a proxy request
