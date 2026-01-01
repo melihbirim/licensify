@@ -168,7 +168,7 @@ Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_lim
 
 ### Proxy Mode Endpoints
 
-**Important**: Proxy requests require HMAC-SHA256 signatures for security. See [docs/SECURITY-UPDATES-2025.md](docs/SECURITY-UPDATES-2025.md) for client integration examples.
+**Important**: Proxy requests require HMAC-SHA256 signatures for security. See [docs/SECURITY.md](docs/SECURITY.md) for client integration examples.
 
 **POST /proxy/openai/*** - Proxy OpenAI requests
 ```json
@@ -241,7 +241,7 @@ Returns OpenAI/Anthropic response with rate limit headers:
 - ✅ Graceful shutdown for zero-downtime deployments
 
 **📚 Security Documentation:**
-- See [docs/SECURITY-UPDATES-2025.md](docs/SECURITY-UPDATES-2025.md) for complete security audit and implementation details
+- See [docs/SECURITY.md](docs/SECURITY.md) for complete security audit and implementation details
 - Includes client integration examples for HMAC signing (JavaScript, Python, Go)
 
 ## Deployment

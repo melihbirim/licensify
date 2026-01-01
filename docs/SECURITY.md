@@ -1,8 +1,8 @@
-# Security Updates - January 2025
+# Security Documentation
 
 ## Overview
 
-This document details the critical security improvements implemented to address production deployment concerns. All three high-priority security features have been completed.
+This document details the critical security improvements implemented to address production deployment concerns. All high-priority security features have been completed.
 
 ## ✅ Completed Security Features
 
@@ -468,8 +468,8 @@ Updated files:
 - ✅ `main.go`: All 3 features implemented
 - ✅ `sql/*/init.sql`: Added encryption_salt column
 - ✅ `sql/*/migrations/`: Created migration files
-- ✅ `docs/SECURITY-UPDATES-2025.md`: This document
-- 🔄 `README.md`: Needs proxy HMAC client examples
+- ✅ `docs/SECURITY.md`: This document
+- ✅ `README.md`: Updated with security features and HMAC references
 - 🔄 `.env.example`: Needs REQUIRE_EMAIL_VERIFICATION
 
 ---
@@ -504,5 +504,5 @@ For questions or issues:
 - Ensure all environment variables are set correctly
 - Test with development flag first: `REQUIRE_EMAIL_VERIFICATION=false`
 
-**Last Updated**: January 2025  
+**Last Updated**: January 2026  
 **Version**: 2.0.0
