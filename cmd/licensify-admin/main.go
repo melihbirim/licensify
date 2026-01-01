@@ -679,10 +679,10 @@ func min(a, b int) int {
 
 func sendUpgradeEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTier, newTier, newLicenseKey string, dailyLimit int) error {
 	type EmailRequest struct {
-		From    string `json:"from"`
+		From    string   `json:"from"`
 		To      []string `json:"to"`
-		Subject string `json:"subject"`
-		HTML    string `json:"html"`
+		Subject string   `json:"subject"`
+		HTML    string   `json:"html"`
 	}
 
 	tierAction := "upgraded"

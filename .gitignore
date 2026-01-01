@@ -1,6 +1,7 @@
 # Binaries
 server
 licensify
+licensify-*
 *.exe
 *.exe~
 *.dll
