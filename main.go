@@ -1464,16 +1464,16 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 
 		// Check if license exists and is active
 		var licenseID, tier, expiresAtStr string
-		var dailyLimit int64
+		var dailyLimit, monthlyLimit int64
 
 		if isPostgresDB {
 			// PostgreSQL: use EXTRACT(EPOCH FROM expires_at)
 			var expiresAtUnix int64
 			err := db.QueryRow(fmt.Sprintf(`
-				SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
+				SELECT license_id, tier, daily_limit, monthly_limit, EXTRACT(EPOCH FROM expires_at)::bigint
 				FROM licenses 
 				WHERE license_id = %s AND active = true
-			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &monthlyLimit, &expiresAtUnix)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1488,10 +1488,10 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		} else {
 			// SQLite: expires_at is stored as TEXT in RFC3339 format
 			err := db.QueryRow(fmt.Sprintf(`
-				SELECT license_id, tier, daily_limit, expires_at
+				SELECT license_id, tier, daily_limit, monthly_limit, expires_at
 				FROM licenses 
 				WHERE license_id = %s AND active = true
-			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &monthlyLimit, &expiresAtStr)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1559,6 +1559,35 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				},
 			})
 			return
+		}
+
+		// Check monthly limit (if not unlimited -1)
+		if monthlyLimit > 0 {
+			thisMonth := time.Now().Format("2006-01")
+			var monthlyUsage int
+			err = db.QueryRow(fmt.Sprintf(`
+				SELECT COALESCE(SUM(scans), 0) FROM daily_usage
+				WHERE license_id = %s AND hardware_id = %s AND date LIKE %s
+			`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, hardwareID, thisMonth+"%").Scan(&monthlyUsage)
+
+			if err != nil {
+				log.Printf("Database error checking monthly usage: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			if monthlyUsage >= int(monthlyLimit) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": fmt.Sprintf("Monthly limit of %d requests exceeded. Current usage: %d", monthlyLimit, monthlyUsage),
+						"type":    "rate_limit_exceeded",
+						"code":    "monthly_limit_exceeded",
+					},
+				})
+				return
+			}
 		}
 
 		// Determine API endpoint and key
@@ -1643,19 +1672,18 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
-		// Increment usage counter (only on successful requests)
-		if resp.StatusCode == http.StatusOK {
-			_, err = db.Exec(fmt.Sprintf(`
-				INSERT INTO daily_usage (license_id, date, scans, hardware_id)
-				VALUES (%s, %s, 1, %s)
-				ON CONFLICT (license_id, date)
-				DO UPDATE SET scans = daily_usage.scans + 1
-			`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID)
+		// Increment usage counter for all responses (prevents retry abuse)
+		// Count all API calls regardless of status code since they consume provider quota
+		_, err = db.Exec(fmt.Sprintf(`
+			INSERT INTO daily_usage (license_id, date, scans, hardware_id)
+			VALUES (%s, %s, 1, %s)
+			ON CONFLICT (license_id, date)
+			DO UPDATE SET scans = daily_usage.scans + 1
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID)
 
-			if err != nil {
-				log.Printf("Failed to update usage: %v", err)
-				// Don't fail the request, just log the error
-			}
+		if err != nil {
+			log.Printf("Failed to update usage: %v", err)
+			// Don't fail the request, just log the error
 		}
 
 		// Copy response headers
