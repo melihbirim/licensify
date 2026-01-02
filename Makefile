@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-run help build-all release
+.PHONY: build run test clean docker-build docker-run help build-all release lint test-coverage test-integration
 
 # Variables
 BINARY_NAME=licensify
@@ -20,6 +20,25 @@ help: ## Show this help message
 	@echo ''
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+test: ## Run all tests
+	@echo "Running tests..."
+	go test -v -race ./...
+
+test-coverage: ## Run tests with coverage report
+	@echo "Running tests with coverage..."
+	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+test-integration: ## Run integration tests (requires running DB)
+	@echo "Running integration tests..."
+	DB_TYPE=sqlite DB_PATH=:memory: go test -v -race -tags=integration ./...
+
+lint: ## Run linters
+	@echo "Running linters..."
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: brew install golangci-lint" && exit 1)
+	golangci-lint run --timeout=5m
 
 build: ## Build the binary for current platform
 	@echo "Building $(BINARY_NAME) v$(VERSION) ($(GIT_COMMIT))..."
