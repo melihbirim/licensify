@@ -41,7 +41,7 @@ const (
 var (
 	db           *sql.DB
 	privateKey   ed25519.PrivateKey //nolint:unused // Used for license signing (future feature)
-	isPostgresDB bool                // Track database type
+	isPostgresDB bool               // Track database type
 
 	// Build information (set via ldflags)
 	Version   = "1.1.0"
@@ -443,7 +443,7 @@ func initDB(dbPath, dbURL string) error {
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":     "ok",
 		"service":    "licensify",
 		"version":    Version,
@@ -493,7 +493,7 @@ func handleTiers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"tiers":   response,
 	})
@@ -567,7 +567,7 @@ func handleCheck() http.HandlerFunc {
 		resp.Limits.MaxActivations = license.Limits.MaxActivations
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 
 		log.Printf("License check for %s: tier=%s, active=%v", req.LicenseKey, license.Tier, license.Active)
 	}
@@ -600,7 +600,7 @@ func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) h
 				Email:   req.Email,
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -644,7 +644,7 @@ func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) h
 			Email:   req.Email,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -721,7 +721,7 @@ func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool)
 				Message:    "Email verified! Your existing license key is ready.",
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -752,7 +752,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
 		}
 
 		// Delete verification code
-		db.Exec(fmt.Sprintf("DELETE FROM verification_codes WHERE email = %s", sqlPlaceholder(1)), req.Email)
+		_, _ = db.Exec(fmt.Sprintf("DELETE FROM verification_codes WHERE email = %s", sqlPlaceholder(1)), req.Email)
 
 		// Send license email
 		if err := sendLicenseEmail(resendAPIKey, fromEmail, req.Email, licenseKey, "free", 10); err != nil {
@@ -770,7 +770,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
 			Message:    "Email verified! Your FREE license is ready.",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -790,7 +790,7 @@ func storeProxyKey(proxyKey, licenseID, hardwareID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Delete existing proxy key for this license+hardware (if any)
 	_, err = tx.Exec(fmt.Sprintf(`DELETE FROM proxy_keys WHERE license_id = %s AND hardware_id = %s`, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, hardwareID)
@@ -992,7 +992,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -1046,7 +1046,7 @@ scans = scans + excluded.scans
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -1141,7 +1141,7 @@ WHERE a.hardware_id = %s
 }
 
 func recordCheckIn(licenseID string) {
-	db.Exec(fmt.Sprintf(`
+	_, _ = db.Exec(fmt.Sprintf(`
 INSERT INTO check_ins (license_id, last_check_in) 
 VALUES (%s, CURRENT_TIMESTAMP)
 ON CONFLICT(license_id) DO UPDATE SET 
@@ -1151,7 +1151,7 @@ last_check_in = CURRENT_TIMESTAMP
 
 func getUsage(licenseID, date string) (int, int) {
 	var dailyUsage int
-	db.QueryRow(fmt.Sprintf(`
+	_ = db.QueryRow(fmt.Sprintf(`
 SELECT COALESCE(SUM(scans), 0) FROM daily_usage 
 WHERE license_id = %s AND date = %s
 `, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, date).Scan(&dailyUsage)
@@ -1159,7 +1159,7 @@ WHERE license_id = %s AND date = %s
 	// Monthly usage (current month)
 	var monthlyUsage int
 	yearMonth := date[:7] // YYYY-MM
-	db.QueryRow(fmt.Sprintf(`
+	_ = db.QueryRow(fmt.Sprintf(`
 SELECT COALESCE(SUM(scans), 0) FROM daily_usage 
 WHERE license_id = %s AND date LIKE %s
 `, sqlPlaceholder(1), sqlPlaceholder(2)), licenseID, yearMonth+"%").Scan(&monthlyUsage)
@@ -1256,7 +1256,7 @@ func generateSalt() (string, error) {
 func sendError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(ActivationResponse{
+	_ = json.NewEncoder(w).Encode(ActivationResponse{
 		Success: false,
 		Error:   message,
 	})
@@ -1374,7 +1374,7 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
@@ -1551,7 +1551,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		if currentUsage >= int(dailyLimit) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": map[string]interface{}{
 					"message": fmt.Sprintf("Daily limit of %d requests exceeded. Current usage: %d", dailyLimit, currentUsage),
 					"type":    "rate_limit_exceeded",
@@ -1579,7 +1579,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			if monthlyUsage >= int(monthlyLimit) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"error": map[string]interface{}{
 						"message": fmt.Sprintf("Monthly limit of %d requests exceeded. Current usage: %d", monthlyLimit, monthlyUsage),
 						"type":    "rate_limit_exceeded",
@@ -1670,7 +1670,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			}
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		// Increment usage counter for all responses (prevents retry abuse)
 		// Count all API calls regardless of status code since they consume provider quota
@@ -1700,7 +1700,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 
 		// Set status code and stream response body
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 
 		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, redactPII(licenseID), currentUsage+1, dailyLimit)
 	}
@@ -1745,7 +1745,7 @@ func main() {
 	if err := initDB(config.DatabasePath, config.DatabaseURL); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Load private key (already validated in validateConfig)
 	privKeyBytes, err := base64.StdEncoding.DecodeString(config.PrivateKeyB64)

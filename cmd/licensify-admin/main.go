@@ -112,7 +112,7 @@ func handleCreate() {
 	monthlyLimit := fs.Int("monthly", 0, "Monthly API limit (0 for tier default, -1 unlimited)")
 	maxActivations := fs.Int("activations", 0, "Max device activations (0 for tier default, -1 unlimited)")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *email == "" || *name == "" {
 		fmt.Println("Error: -email and -name are required")
@@ -140,7 +140,7 @@ func handleCreate() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Get tier configuration
 	tierConfig, _ := tiers.Get(*tier)
@@ -199,7 +199,7 @@ func handleUpgrade() {
 	months := fs.Int("months", 0, "Duration for new license in months (0 to keep same expiry)")
 	sendEmail := fs.Bool("send-email", true, "Send email to customer with new license key")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *oldLicense == "" || *newTier == "" {
 		fmt.Println("Error: -license and -tier are required")
@@ -227,7 +227,7 @@ func handleUpgrade() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Get current license details
 	var oldName, oldEmail, oldTier string
@@ -325,7 +325,7 @@ func handleFix() {
 	monthlyLimit := fs.Int("monthly", -999, "Monthly API limit (-1 unlimited)")
 	maxActivations := fs.Int("activations", -999, "Max device activations (-1 unlimited)")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *license == "" {
 		fmt.Println("Error: -license is required")
@@ -337,7 +337,7 @@ func handleFix() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Build update query dynamically
 	updates := []string{}
@@ -419,13 +419,13 @@ func handleList() {
 	tier := fs.String("tier", "", "Filter by tier")
 	activeOnly := fs.Bool("active", false, "Show only active licenses")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	// Connect to database
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Build query
 	query := "SELECT license_id, customer_name, customer_email, tier, expires_at, active FROM licenses WHERE 1=1"
@@ -448,7 +448,7 @@ func handleList() {
 	if err != nil {
 		log.Fatalf("Failed to list licenses: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	fmt.Println("Licenses:")
 	fmt.Println(strings.Repeat("-", 100))
@@ -485,7 +485,7 @@ func handleGet() {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	license := fs.String("license", "", "License key (required)")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *license == "" {
 		fmt.Println("Error: -license is required")
@@ -497,7 +497,7 @@ func handleGet() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	showLicense(*license)
 }
@@ -506,7 +506,7 @@ func handleDeactivate() {
 	fs := flag.NewFlagSet("deactivate", flag.ExitOnError)
 	license := fs.String("license", "", "License key (required)")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *license == "" {
 		fmt.Println("Error: -license is required")
@@ -518,7 +518,7 @@ func handleDeactivate() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	result, err := db.Exec(fmt.Sprintf("UPDATE licenses SET active = false WHERE license_id = %s", sqlPlaceholder(1)), *license)
 	if err != nil {
@@ -538,7 +538,7 @@ func handleActivate() {
 	fs := flag.NewFlagSet("activate", flag.ExitOnError)
 	license := fs.String("license", "", "License key (required)")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *license == "" {
 		fmt.Println("Error: -license is required")
@@ -550,7 +550,7 @@ func handleActivate() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	result, err := db.Exec(fmt.Sprintf("UPDATE licenses SET active = true WHERE license_id = %s", sqlPlaceholder(1)), *license)
 	if err != nil {
@@ -658,7 +658,7 @@ func showLicense(licenseID string) {
 	// Get activation count
 	var activationCount int
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM activations WHERE license_id = %s", sqlPlaceholder(1))
-	db.QueryRow(countQuery, licenseID).Scan(&activationCount)
+	_ = db.QueryRow(countQuery, licenseID).Scan(&activationCount)
 
 	// Display
 	fmt.Println()
@@ -823,7 +823,7 @@ func sendUpgradeEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTier, n
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("resend API returned status %d", resp.StatusCode)
@@ -914,7 +914,7 @@ func handleTiers() {
 	case "get":
 		fs := flag.NewFlagSet("get", flag.ExitOnError)
 		tierName := fs.String("name", "", "Tier name (required)")
-		fs.Parse(os.Args[3:])
+		_ = fs.Parse(os.Args[2:])
 
 		if *tierName == "" {
 			fmt.Println("Error: -name is required")
@@ -1017,7 +1017,7 @@ func handleMigrate() {
 	dryRun := fs.Bool("dry-run", false, "Show what would be migrated without making changes")
 	sendEmail := fs.Bool("send-email", true, "Send email notifications to migrated customers")
 
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *fromTier == "" {
 		fmt.Println("Error: -from is required")
@@ -1069,7 +1069,7 @@ func handleMigrate() {
 	if err := initDB(); err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Get source and target tier configurations (use GetRaw to get actual tier data, not migration target)
 	sourceTierConfig, _ := tiers.GetRaw(*fromTier)
@@ -1081,7 +1081,7 @@ func handleMigrate() {
 	if err != nil {
 		log.Fatalf("Failed to query licenses: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type LicenseInfo struct {
 		LicenseID string
@@ -1132,7 +1132,7 @@ func handleMigrate() {
 	// Confirm migration
 	fmt.Print("\n⚠️  This will update licenses in the database. Continue? (yes/no): ")
 	var confirmation string
-	fmt.Scanln(&confirmation)
+	_, _ = fmt.Scanln(&confirmation)
 	if strings.ToLower(confirmation) != "yes" {
 		fmt.Println("Migration cancelled")
 		return
@@ -1288,7 +1288,7 @@ func sendMigrationEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTierI
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("resend API returned status %d", resp.StatusCode)
