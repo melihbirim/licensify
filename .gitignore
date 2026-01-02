@@ -3,6 +3,10 @@ server
 /licensify
 /licensify-admin
 /licensify-cli
+/bin/licensify-cli
+/bin/licensify-admin
+/bin/server
+/bin/licensify
 *.exe
 *.exe~
 *.dll

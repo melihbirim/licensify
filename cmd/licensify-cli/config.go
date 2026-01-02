@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Server      string    `json:"server"`
+	Email       string    `json:"email,omitempty"`
 	LicenseKey  string    `json:"license_key,omitempty"`
 	HardwareID  string    `json:"hardware_id,omitempty"`
 	Tier        string    `json:"tier,omitempty"`
@@ -52,9 +53,12 @@ func loadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// Apply environment variable overrides
+	// Apply overrides in priority order: flag > env var > config
 	if server := os.Getenv("LICENSIFY_SERVER"); server != "" {
 		config.Server = server
+	}
+	if serverURL != "" {
+		config.Server = serverURL
 	}
 	if key := os.Getenv("LICENSIFY_KEY"); key != "" {
 		config.LicenseKey = key

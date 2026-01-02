@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,21 +21,70 @@ var initCmd = &cobra.Command{
 	Short:   "Request a new license",
 	Long: `Request a new license by providing your email and desired tier.
 You will receive a verification code via email.`,
-	Example: `  licensify init --email user@example.com --tier free
+	Example: `  licensify init
+  licensify init --email user@example.com --tier free
   licensify request --email user@example.com --tier pro`,
 	RunE: runInit,
 }
 
 func init() {
-	initCmd.Flags().StringVarP(&initEmail, "email", "e", "", "Email address (required)")
-	initCmd.Flags().StringVarP(&initTier, "tier", "t", "free", "License tier (free, pro, enterprise)")
-	initCmd.MarkFlagRequired("email")
+	initCmd.Flags().StringVarP(&initEmail, "email", "e", "", "Email address")
+	initCmd.Flags().StringVarP(&initTier, "tier", "t", "", "License tier (free, pro, enterprise)")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
 	config, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Check if running interactively (no flags provided)
+	interactive := initEmail == "" && initTier == ""
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Ask for server URL if not configured and running interactively
+	if interactive && config.Server == "http://localhost:8080" && serverURL == "" {
+		fmt.Printf("Server URL [%s]: ", config.Server)
+		if scanner.Scan() {
+			input := strings.TrimSpace(scanner.Text())
+			if input != "" {
+				config.Server = input
+			}
+		}
+	}
+
+	// Ask for email if not provided
+	if initEmail == "" {
+		fmt.Print("Email address: ")
+		if scanner.Scan() {
+			initEmail = strings.TrimSpace(scanner.Text())
+			if initEmail == "" {
+				return fmt.Errorf("email is required")
+			}
+		}
+	}
+
+	// Ask for tier if not provided
+	if initTier == "" {
+		fmt.Print("License tier [free]: ")
+		if scanner.Scan() {
+			input := strings.TrimSpace(scanner.Text())
+			if input == "" {
+				initTier = "free"
+			} else {
+				initTier = input
+			}
+		} else {
+			initTier = "free"
+		}
+	}
+
+	// Save config with server URL if it was changed
+	if interactive {
+		if err := saveConfig(config); err != nil {
+			printError(fmt.Sprintf("Warning: Could not save config: %v", err))
+		}
 	}
 
 	client := newHTTPClient(config.Server)
@@ -46,6 +98,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if !resp.Success {
 		return fmt.Errorf("request failed: %s", resp.Message)
+	}
+
+	// Save email and tier to config for next step
+	config.Email = initEmail
+	config.Tier = initTier
+	if err := saveConfig(config); err != nil {
+		printError(fmt.Sprintf("Warning: Could not save config: %v", err))
 	}
 
 	printSuccess("Verification code sent!")
@@ -67,16 +126,16 @@ var verifyCmd = &cobra.Command{
 	Use:   "verify",
 	Short: "Verify email and create license",
 	Long:  `Verify your email with the code sent to you and create a license key.`,
-	Example: `  licensify verify --email user@example.com --code 123456 --tier free
+	Example: `  licensify verify --code 123456
+  licensify verify --email user@example.com --code 123456 --tier free
   licensify verify -e user@example.com -c 123456 -t pro`,
 	RunE: runVerify,
 }
 
 func init() {
-	verifyCmd.Flags().StringVarP(&verifyEmail, "email", "e", "", "Email address (required)")
+	verifyCmd.Flags().StringVarP(&verifyEmail, "email", "e", "", "Email address")
 	verifyCmd.Flags().StringVarP(&verifyCode, "code", "c", "", "Verification code (required)")
-	verifyCmd.Flags().StringVarP(&verifyTier, "tier", "t", "free", "License tier")
-	verifyCmd.MarkFlagRequired("email")
+	verifyCmd.Flags().StringVarP(&verifyTier, "tier", "t", "", "License tier")
 	verifyCmd.MarkFlagRequired("code")
 }
 
@@ -84,6 +143,25 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	config, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Use saved email if not provided
+	if verifyEmail == "" {
+		if config.Email != "" {
+			verifyEmail = config.Email
+			printInfo(fmt.Sprintf("Using saved email: %s", verifyEmail))
+		} else {
+			return fmt.Errorf("email is required (use --email or run 'licensify init' first)")
+		}
+	}
+
+	// Use saved tier if not provided
+	if verifyTier == "" {
+		if config.Tier != "" {
+			verifyTier = config.Tier
+		} else {
+			verifyTier = "free"
+		}
 	}
 
 	client := newHTTPClient(config.Server)
@@ -108,6 +186,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Monthly Limit: %d\n", resp.MonthlyLimit)
 
 	// Save license key to config
+	config.Email = verifyEmail
 	config.LicenseKey = resp.LicenseKey
 	config.Tier = resp.Tier
 	config.ExpiresAt = resp.ExpiresAt

@@ -11,6 +11,7 @@ var (
 	version   = "dev"
 	gitCommit = "none"
 	buildTime = "unknown"
+	serverURL string
 )
 
 var rootCmd = &cobra.Command{
@@ -24,6 +25,9 @@ It allows you to request, verify, activate, and check licenses from your termina
 
 func init() {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("licensify version %s (commit: %s, built: %s)\n", version, gitCommit, buildTime))
+
+	// Global flags
+	rootCmd.PersistentFlags().StringVarP(&serverURL, "server", "s", "", "Server URL (overrides config and LICENSIFY_SERVER)")
 
 	// Add all commands
 	rootCmd.AddCommand(initCmd)

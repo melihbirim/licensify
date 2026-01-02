@@ -32,6 +32,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("📋 License Status")
 	fmt.Println("─────────────────")
+
+	if config.Email != "" {
+		fmt.Printf("Email:        %s\n", config.Email)
+	}
+
 	fmt.Printf("License Key:  %s\n", redactKey(config.LicenseKey))
 	fmt.Printf("Tier:         %s\n", config.Tier)
 	fmt.Printf("Server:       %s\n", config.Server)
