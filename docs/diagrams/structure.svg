@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="119px" preserveAspectRatio="none" style="width:303px;height:119px;" version="1.1" viewBox="0 0 303 119" width="303px" zoomAndPan="magnify"><defs><filter height="300%" id="f1cw5o6tx1gyui" width="300%" x="-1" y="-1"><feGaussianBlur result="blurOut" stdDeviation="2.0"/><feColorMatrix in="blurOut" result="blurOut2" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .4 0"/><feOffset dx="4.0" dy="4.0" in="blurOut2" result="blurOut3"/><feBlend in="SourceGraphic" in2="blurOut3" mode="normal"/></filter></defs><g><!--MD5=[6ad3a983a2e504389677421ffb7c83f3]
+cluster tiers--><polygon fill="#FFFFFF" filter="url(#f1cw5o6tx1gyui)" points="22,24,64,24,71,46.2969,281,46.2969,281,107,22,107,22,24" style="stroke: #000000; stroke-width: 1.5;"/><line style="stroke: #000000; stroke-width: 1.5;" x1="22" x2="71" y1="46.2969" y2="46.2969"/><text fill="#000000" font-family="sans-serif" font-size="14" font-weight="bold" lengthAdjust="spacingAndGlyphs" textLength="36" x="26" y="38.9951">tiers</text><!--MD5=[e4e7f0ea48c1b583ef6db6d189765ef3]
+class tiers.TierConfig--><rect fill="#FEFECE" filter="url(#f1cw5o6tx1gyui)" height="32" id="tiers.TierConfig" style="stroke: #A80036; stroke-width: 1.5;" width="94" x="171" y="59"/><ellipse cx="186" cy="75" fill="#7FFFD4" rx="11" ry="11" style="stroke: #A80036; stroke-width: 1.0;"/><path d="M185.4844,75.5625 Q183.625,74.8594 182.9688,74.0938 Q182.3281,73.3125 182.3281,72 Q182.3281,70.3125 183.4063,69.3438 Q184.4844,68.375 186.3594,68.375 Q187.2188,68.375 188.0625,68.5781 Q188.9219,68.7656 189.7656,69.1563 L189.7656,71.5469 Q188.9844,70.9844 188.1563,70.7031 Q187.3438,70.4063 186.5469,70.4063 Q185.6719,70.4063 185.1875,70.7656 Q184.7188,71.125 184.7188,71.7813 Q184.7188,72.2969 185.0625,72.6406 Q185.4063,72.9688 186.5,73.375 L187.5625,73.7813 Q189.0469,74.3281 189.75,75.2344 Q190.4688,76.1406 190.4688,77.5156 Q190.4688,79.3906 189.3594,80.3125 Q188.25,81.2344 186,81.2344 Q185.0781,81.2344 184.1563,81.0156 Q183.2344,80.7969 182.375,80.375 L182.375,77.8438 Q183.3438,78.5313 184.2656,78.875 Q185.1875,79.2188 186.0781,79.2188 Q186.9844,79.2188 187.4844,78.8125 Q187.9844,78.3906 187.9844,77.6563 Q187.9844,77.0938 187.6406,76.6875 Q187.3125,76.2656 186.6875,76.0156 L185.4844,75.5625 Z "/><text fill="#000000" font-family="sans-serif" font-size="12" lengthAdjust="spacingAndGlyphs" textLength="62" x="200" y="79.1543">TierConfig</text><!--MD5=[fedd2df21edf1ba7823693ff5bb5a5f3]
+class tiers.TierDetails--><rect fill="#FEFECE" filter="url(#f1cw5o6tx1gyui)" height="32" id="tiers.TierDetails" style="stroke: #A80036; stroke-width: 1.5;" width="98" x="38" y="59"/><ellipse cx="53" cy="75" fill="#7FFFD4" rx="11" ry="11" style="stroke: #A80036; stroke-width: 1.0;"/><path d="M52.4844,75.5625 Q50.625,74.8594 49.9688,74.0938 Q49.3281,73.3125 49.3281,72 Q49.3281,70.3125 50.4063,69.3438 Q51.4844,68.375 53.3594,68.375 Q54.2188,68.375 55.0625,68.5781 Q55.9219,68.7656 56.7656,69.1563 L56.7656,71.5469 Q55.9844,70.9844 55.1563,70.7031 Q54.3438,70.4063 53.5469,70.4063 Q52.6719,70.4063 52.1875,70.7656 Q51.7188,71.125 51.7188,71.7813 Q51.7188,72.2969 52.0625,72.6406 Q52.4063,72.9688 53.5,73.375 L54.5625,73.7813 Q56.0469,74.3281 56.75,75.2344 Q57.4688,76.1406 57.4688,77.5156 Q57.4688,79.3906 56.3594,80.3125 Q55.25,81.2344 53,81.2344 Q52.0781,81.2344 51.1563,81.0156 Q50.2344,80.7969 49.375,80.375 L49.375,77.8438 Q50.3438,78.5313 51.2656,78.875 Q52.1875,79.2188 53.0781,79.2188 Q53.9844,79.2188 54.4844,78.8125 Q54.9844,78.3906 54.9844,77.6563 Q54.9844,77.0938 54.6406,76.6875 Q54.3125,76.2656 53.6875,76.0156 L52.4844,75.5625 Z "/><text fill="#000000" font-family="sans-serif" font-size="12" lengthAdjust="spacingAndGlyphs" textLength="66" x="67" y="79.1543">TierDetails</text><!--MD5=[9492873fa99555eba7eed1f584870d7d]
+@startuml
+namespace tiers {
+    class "TierConfig" << (S,Aquamarine) >> {
+        + Tiers <font color=blue>map</font>[string]*TierDetails
+
+    }
+    class "TierDetails" << (S,Aquamarine) >> {
+        + Name string
+        + DailyLimit int
+        + MonthlyLimit int
+        + MaxDevices int
+        + Features []string
+        + EmailVerificationRequired bool
+        + PriceMonthly float64
+        + OneTimePayment float64
+        + CustomPricing bool
+        + Hidden bool
+        + Deprecated bool
+        + MigrateTo string
+        + Description string
+
+    }
+}
+
+
+
+hide fields
+hide methods
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 10:22:07 UTC 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 17.0.17+10
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: null
+--></g></svg>
