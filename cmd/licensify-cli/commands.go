@@ -136,7 +136,7 @@ func init() {
 	verifyCmd.Flags().StringVarP(&verifyEmail, "email", "e", "", "Email address")
 	verifyCmd.Flags().StringVarP(&verifyCode, "code", "c", "", "Verification code (required)")
 	verifyCmd.Flags().StringVarP(&verifyTier, "tier", "t", "", "License tier")
-	verifyCmd.MarkFlagRequired("code")
+	_ = verifyCmd.MarkFlagRequired("code")
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {

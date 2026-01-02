@@ -21,14 +21,17 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.4.0
           args: --timeout=5m
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -44,9 +47,10 @@ jobs:
           args: '-no-fail -fmt sarif -out results.sarif ./...'
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
+        continue-on-error: true
 
   test:
     name: Test
@@ -88,14 +92,14 @@ jobs:
         run: go mod verify
 
       - name: Run tests (SQLite)
-        if: matrix.db == 'sqlite'
+        if: ${{ matrix.db == 'sqlite' }}
         env:
           DB_TYPE: sqlite
-          DB_PATH: :memory:
+          DB_PATH: ":memory:"
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Run tests (PostgreSQL)
-        if: matrix.db == 'postgres'
+        if: ${{ matrix.db == 'postgres' }}
         env:
           DB_TYPE: postgres
           DB_HOST: localhost
