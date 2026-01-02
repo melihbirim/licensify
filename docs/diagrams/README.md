@@ -4,11 +4,29 @@ This directory contains auto-generated flow diagrams from the codebase.
 
 ## Auto-Generated Diagrams
 
-These diagrams are automatically generated from the Go code:
+### API Handler Call Flow
+
+![API Handler Flow](api-handlers.svg)
+
+This diagram shows the complete call graph of API endpoint handlers and their dependencies. Generated using `go-callvis`.
+
+### CLI Command Execution Flow
+
+![CLI Flow](cli-flow.svg)
+
+Visualizes the CLI command structure and execution paths through the cobra command framework. Generated using `go-callvis`.
+
+### Package Structure
+
+See `structure.puml` for the PlantUML source of the package architecture.
+
+## Files
 
 - **api-handlers.svg** - API handler call flow
-- **cli-flow.svg** - CLI command execution flow  
-- **structure.puml/svg** - Package structure diagram
+- **api-handlers.gv** - GraphViz source
+- **cli-flow.svg** - CLI command execution flow
+- **cli-flow.gv** - GraphViz source
+- **structure.puml** - Package structure diagram
 
 ## Generating Locally
 
