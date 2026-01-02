@@ -1,3 +1,5 @@
+version: 2
+
 run:
   timeout: 5m
   tests: true
@@ -6,13 +8,10 @@ run:
 linters:
   enable:
     - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
     - govet         # Go vet examines Go source code
     - ineffassign   # Detect ineffectual assignments
     - staticcheck   # Advanced Go linter
     - unused        # Check for unused code
-    - gofmt         # Check code formatting
-    - goimports     # Check import formatting
     - misspell      # Check for misspelled words
     - gocritic      # Advanced linter with many checks
     - gosec         # Security-focused linter
@@ -20,7 +19,6 @@ linters:
     - noctx         # Find HTTP requests without context
     - sqlclosecheck # Check SQL rows/statements are closed
     - rowserrcheck  # Check SQL rows errors are checked
-    - exportloopref # Check for loop variable references in goroutines
     - errname       # Check error names follow convention
     - errorlint     # Error wrapping issues
     - forcetypeassert # Find forced type assertions
