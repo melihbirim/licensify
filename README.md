@@ -67,6 +67,50 @@ Licensify solves both in one self-hosted deployment:
 
 ## Quick Start
 
+### Getting Your First License
+
+**Complete Flow (3 Steps):**
+
+```bash
+# Step 1: Request a license
+curl -X POST http://localhost:8080/init \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "tier": "free"}'
+
+# → Check your email for 6-digit verification code
+
+# Step 2: Verify email and create license
+curl -X POST http://localhost:8080/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "code": "123456",
+    "tier": "free"
+  }'
+
+# → Response includes your license key: LIC-XXXX-XXXX-XXXX-XXXX
+
+# Step 3: Activate on your device
+curl -X POST http://localhost:8080/activate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "license_key": "LIC-XXXX-XXXX-XXXX-XXXX",
+    "hardware_id": "your-machine-id"
+  }'
+
+# → Returns encrypted API key bundle for your use
+```
+
+**Development Mode (Skip Email Verification):**
+```bash
+# Set in .env
+REQUIRE_EMAIL_VERIFICATION=false
+
+# Then skip to verify with any code:
+curl -X POST http://localhost:8080/verify \
+  -d '{"email": "test@example.com", "code": "any", "tier": "free"}'
+```
+
 ### 1. Build & Run
 
 ```bash
