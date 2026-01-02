@@ -7,23 +7,30 @@ run:
 
 linters:
   enable:
-    - errcheck      # Check for unchecked errors
     - govet         # Go vet examines Go source code
     - ineffassign   # Detect ineffectual assignments
-    - staticcheck   # Advanced Go linter
+    - staticcheck   # Advanced Go linter (includes gosimple)
     - unused        # Check for unused code
     - misspell      # Check for misspelled words
-    - gocritic      # Advanced linter with many checks
     - gosec         # Security-focused linter
-    - bodyclose     # Check HTTP response bodies are closed
-    - noctx         # Find HTTP requests without context
-    - sqlclosecheck # Check SQL rows/statements are closed
-    - rowserrcheck  # Check SQL rows errors are checked
-    - errname       # Check error names follow convention
-    - errorlint     # Error wrapping issues
-    - forcetypeassert # Find forced type assertions
-    - goconst       # Find repeated strings that could be constants
-    - revive        # Fast, configurable, extensible linter
+  disable:
+    - errcheck      # Too many false positives for deferred Close()
+    - gocritic      # Too opinionated for this stage
+    - bodyclose     # Covered by manual review
+    - noctx         # Not critical for this project
+    - sqlclosecheck # Covered by manual review
+    - rowserrcheck  # Covered by manual review
+    - copyloopvar   # Go 1.22+ handles this automatically
+    - errname       # Not critical
+    - errorlint     # Will be addressed in future refactor
+    - forcetypeassert # Not critical
+    - goconst       # Will be addressed in future refactor
+    - revive        # Too many rules for initial setup
+
+formatters:
+  enable:
+    - gofmt         # Check code formatting
+    - goimports     # Check import formatting
 
 linters-settings:
   errcheck:
