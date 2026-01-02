@@ -435,7 +435,7 @@ func handleList() {
 	if *tier != "" {
 		query += fmt.Sprintf(" AND tier = %s", sqlPlaceholder(argNum))
 		args = append(args, *tier)
-		argNum++
+		_ = argNum // argNum is used in sqlPlaceholder above
 	}
 
 	if *activeOnly {
@@ -801,7 +801,7 @@ func sendUpgradeEmail(resendAPIKey, fromEmail, toEmail, customerName, oldTier, n
 	emailReq := EmailRequest{
 		From:    fromEmail,
 		To:      []string{toEmail},
-		Subject: fmt.Sprintf("Your License Has Been %s to %s!", strings.Title(tierAction), strings.ToUpper(newTier)),
+		Subject: fmt.Sprintf("Your License Has Been %s to %s!", strings.ToUpper(tierAction[:1])+tierAction[1:], strings.ToUpper(newTier)),
 		HTML:    htmlBody,
 	}
 

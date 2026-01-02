@@ -40,8 +40,8 @@ const (
 
 var (
 	db           *sql.DB
-	privateKey   ed25519.PrivateKey
-	isPostgresDB bool // Track database type
+	privateKey   ed25519.PrivateKey //nolint:unused // Used for license signing (future feature)
+	isPostgresDB bool                // Track database type
 
 	// Build information (set via ldflags)
 	Version   = "1.1.0"
