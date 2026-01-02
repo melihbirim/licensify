@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-run help build-all release
+.PHONY: build run test clean docker-build docker-run help build-all release lint test-coverage test-integration
 
 # Variables
 BINARY_NAME=licensify
@@ -21,10 +21,32 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the binary for current platform
+test: ## Run all tests
+	@echo "Running tests..."
+	go test -v -race ./...
+
+test-coverage: ## Run tests with coverage report
+	@echo "Running tests with coverage..."
+	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+test-integration: ## Run integration tests (requires running DB)
+	@echo "Running integration tests..."
+	DB_TYPE=sqlite DB_PATH=:memory: go test -v -race -tags=integration ./...
+
+lint: ## Run linters
+	@echo "Running linters..."
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: brew install golangci-lint" && exit 1)
+	golangci-lint run --timeout=5m
+
+build: ## Build binaries for current platform
 	@echo "Building $(BINARY_NAME) v$(VERSION) ($(GIT_COMMIT))..."
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY_NAME) main.go
 	@echo "Build complete: ./$(BINARY_NAME)"
+	@echo "Building $(BINARY_NAME)-admin..."
+	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY_NAME)-admin ./cmd/licensify-admin
+	@echo "Build complete: ./$(BINARY_NAME)-admin"
 
 build-all: clean-dist ## Build binaries for all platforms
 	@echo "Building $(BINARY_NAME) v$(VERSION) for all platforms..."
