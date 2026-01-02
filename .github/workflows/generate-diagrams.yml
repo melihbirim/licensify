@@ -1,0 +1,71 @@
+name: Generate Documentation Diagrams
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - '**.go'
+  workflow_dispatch:
+
+jobs:
+  generate-diagrams:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install diagram tools
+        run: |
+          go install github.com/ofabry/go-callvis@latest
+          go install github.com/jfeliu007/goplantuml/cmd/goplantuml@latest
+          sudo apt-get update
+          sudo apt-get install -y graphviz plantuml
+
+      - name: Generate diagrams
+        run: |
+          mkdir -p docs/diagrams
+          
+          # Generate call graphs (with timeout)
+          timeout 30s go-callvis -format=svg -file=docs/diagrams/api-handlers \
+            -focus=github.com/melihbirim/licensify \
+            -group=pkg,type \
+            -nostd \
+            -skipbrowser \
+            . || echo "Call graph generation timed out (expected)"
+          
+          # Generate structure
+          goplantuml -recursive -hide-fields -hide-methods ./internal > docs/diagrams/structure.puml || true
+          plantuml -tsvg docs/diagrams/structure.puml || true
+          
+          echo "Generated diagrams:"
+          ls -lh docs/diagrams/ || true
+
+      - name: Commit and push diagrams
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/diagrams/*.svg docs/diagrams/*.puml || true
+          git diff --staged --quiet || git commit -m "docs: auto-generate flow diagrams"
+          git push || echo "No changes to push"
+
+      - name: Upload diagrams as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-diagrams
+          path: docs/diagrams/
+          retention-days: 30
