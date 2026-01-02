@@ -88,14 +88,14 @@ jobs:
         run: go mod verify
 
       - name: Run tests (SQLite)
-        if: matrix.db == 'sqlite'
+        if: ${{ matrix.db == 'sqlite' }}
         env:
           DB_TYPE: sqlite
           DB_PATH: :memory:
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Run tests (PostgreSQL)
-        if: matrix.db == 'postgres'
+        if: ${{ matrix.db == 'postgres' }}
         env:
           DB_TYPE: postgres
           DB_HOST: localhost
