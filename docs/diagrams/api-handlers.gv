@@ -1,0 +1,178 @@
+digraph gocallvis {
+    label="";
+    labeljust="l";
+    fontname="Arial";
+    fontsize="14";
+    rankdir="LR";
+    bgcolor="lightgray";
+    style="solid";
+    penwidth="0.5";
+    pad="0.0";
+    nodesep="0.35";
+
+    node [shape="box" style="filled,rounded" fillcolor="honeydew" fontname="Verdana" penwidth="1.0" margin="0.16,0.0"];
+    edge [minlen="2"]
+
+    subgraph "cluster_focus" {
+        bgcolor="#e6ecfa";
+label="main";
+labelloc="t";
+labeljust="c";
+fontsize="18";
+        
+        "github.com/melihbirim/licensify.deriveKey" [ fillcolor="lightblue" label="deriveKey" penwidth="0.5" tooltip="github.com/melihbirim/licensify.deriveKey | defined in main.go:1226\nat main.go:1244: calling [golang.org/x/crypto/argon2.IDKey]" ]
+        "github.com/melihbirim/licensify.cleanupIPLimiters" [ fillcolor="lightblue" label="cleanupIPLimiters" penwidth="0.5" tooltip="github.com/melihbirim/licensify.cleanupIPLimiters | defined in main.go:113\nat main.go:126: calling [(*golang.org/x/time/rate.Limiter).Tokens]" ]
+        "github.com/melihbirim/licensify.isFreeHardwareAlreadyActive" [ label="isFreeHardwareAlreadyActive" penwidth="0.5" tooltip="github.com/melihbirim/licensify.isFreeHardwareAlreadyActive | defined in main.go:1121\nat main.go:1133: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1133: calling [github.com/melihbirim/licensify.sqlPlaceholder]" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify.sqlPlaceholder" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify.sqlPlaceholder | defined in main.go:58" fillcolor="lightblue" label="sqlPlaceholder" ]
+        "github.com/melihbirim/licensify.loadConfig" [ tooltip="github.com/melihbirim/licensify.loadConfig | defined in main.go:278\nat main.go:279: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:280: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:284: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:293: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:294: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:295: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:296: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:297: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:298: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:299: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:301: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:302: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:303: calling [github.com/melihbirim/licensify.getEnv]" fillcolor="lightblue" label="loadConfig" penwidth="0.5" ]
+        "github.com/melihbirim/licensify.getEnv" [ fillcolor="lightblue" label="getEnv" penwidth="0.5" tooltip="github.com/melihbirim/licensify.getEnv | defined in main.go:360" ]
+        "github.com/melihbirim/licensify.validateProxySignature" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify.validateProxySignature | defined in main.go:1398\nat main.go:1401: calling [github.com/melihbirim/licensify.abs]" fillcolor="lightblue" label="validateProxySignature" ]
+        "github.com/melihbirim/licensify.abs" [ fillcolor="lightblue" label="abs" penwidth="0.5" tooltip="github.com/melihbirim/licensify.abs | defined in main.go:1418" ]
+        "github.com/melihbirim/licensify.handleTiers" [ fillcolor="lightblue" label="handleTiers" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleTiers | defined in main.go:469\nat main.go:476: calling [github.com/melihbirim/licensify/internal/tiers.GetAllVisible]" ]
+        "github.com/melihbirim/licensify.recordCheckIn" [ fillcolor="lightblue" label="recordCheckIn" penwidth="0.5" tooltip="github.com/melihbirim/licensify.recordCheckIn | defined in main.go:1143\nat main.go:1149: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+        "github.com/melihbirim/licensify.getLicense" [ fillcolor="lightblue" label="getLicense" penwidth="0.5" tooltip="github.com/melihbirim/licensify.getLicense | defined in main.go:1053\nat main.go:1063: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1086: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1086: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1088: calling [github.com/melihbirim/licensify.redactPII]\nat main.go:1081: calling [github.com/melihbirim/licensify.generateSalt]" ]
+        "github.com/melihbirim/licensify.generateSalt" [ fillcolor="lightblue" label="generateSalt" penwidth="0.5" tooltip="github.com/melihbirim/licensify.generateSalt | defined in main.go:1248" ]
+        "github.com/melihbirim/licensify.redactPII" [ fillcolor="lightblue" label="redactPII" penwidth="0.5" tooltip="github.com/melihbirim/licensify.redactPII | defined in main.go:67" ]
+        "github.com/melihbirim/licensify.sendLicenseEmail" [ fillcolor="lightblue" label="sendLicenseEmail" penwidth="0.5" tooltip="github.com/melihbirim/licensify.sendLicenseEmail | defined in main.go:1325\nat main.go:1356: calling [github.com/melihbirim/licensify.sendResendEmail]" ]
+        "github.com/melihbirim/licensify.sendResendEmail" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify.sendResendEmail | defined in main.go:1359" fillcolor="lightblue" label="sendResendEmail" ]
+        "github.com/melihbirim/licensify.validateProxyKey" [ fillcolor="lightblue" label="validateProxyKey" penwidth="0.5" tooltip="github.com/melihbirim/licensify.validateProxyKey | defined in main.go:814\nat main.go:819: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+        "github.com/melihbirim/licensify.generateLicenseKey" [ fillcolor="lightblue" label="generateLicenseKey" penwidth="0.5" tooltip="github.com/melihbirim/licensify.generateLicenseKey | defined in main.go:1273\nat main.go:1275: calling [github.com/melihbirim/licensify.randomString]\nat main.go:1276: calling [github.com/melihbirim/licensify.randomString]" ]
+        "github.com/melihbirim/licensify.randomString" [ fillcolor="lightblue" label="randomString" penwidth="0.5" tooltip="github.com/melihbirim/licensify.randomString | defined in main.go:1280" ]
+        "github.com/melihbirim/licensify.recordActivation" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify.recordActivation | defined in main.go:1113\nat main.go:1117: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1117: calling [github.com/melihbirim/licensify.sqlPlaceholder]" fillcolor="lightblue" label="recordActivation" ]
+        "github.com/melihbirim/licensify.sendVerificationEmail" [ fillcolor="lightblue" label="sendVerificationEmail" penwidth="0.5" tooltip="github.com/melihbirim/licensify.sendVerificationEmail | defined in main.go:1290\nat main.go:1322: calling [github.com/melihbirim/licensify.sendResendEmail]" ]
+        "github.com/melihbirim/licensify.getActivationCount" [ tooltip="github.com/melihbirim/licensify.getActivationCount | defined in main.go:1098\nat main.go:1100: calling [github.com/melihbirim/licensify.sqlPlaceholder]" fillcolor="lightblue" label="getActivationCount" penwidth="0.5" ]
+        "github.com/melihbirim/licensify.isHardwareActivated" [ tooltip="github.com/melihbirim/licensify.isHardwareActivated | defined in main.go:1104\nat main.go:1109: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1109: calling [github.com/melihbirim/licensify.sqlPlaceholder]" fillcolor="lightblue" label="isHardwareActivated" penwidth="0.5" ]
+        "github.com/melihbirim/licensify.getIPLimiter" [ fillcolor="lightblue" label="getIPLimiter" penwidth="0.5" tooltip="github.com/melihbirim/licensify.getIPLimiter | defined in main.go:97\nat main.go:104: calling [golang.org/x/time/rate.NewLimiter]" ]
+        "github.com/melihbirim/licensify.main" [ fillcolor="lightblue" label="main" penwidth="0.5" tooltip="github.com/melihbirim/licensify.main | defined in main.go:1709\nat main.go:1765: calling [github.com/melihbirim/licensify.handleInit]\nat main.go:1731: calling [github.com/melihbirim/licensify.loadConfig]\nat main.go:1745: calling [github.com/melihbirim/licensify.initDB]\nat main.go:1814: calling [github.com/melihbirim/licensify.main$1]\nat main.go:1766: calling [github.com/melihbirim/licensify.handleVerify]\nat main.go:1765: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1766: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1767: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1768: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1769: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1773: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1768: calling [github.com/melihbirim/licensify.handleCheck]\nat main.go:1769: calling [github.com/melihbirim/licensify.handleUsageReport]\nat main.go:1734: calling [github.com/melihbirim/licensify.validateConfig]\nat main.go:1728: calling [github.com/joho/godotenv.Load]\nat main.go:1773: calling [github.com/melihbirim/licensify.handleProxy]\nat main.go:1760: calling [github.com/melihbirim/licensify.cleanupIPLimiters]\nat main.go:1767: calling [github.com/melihbirim/licensify.handleActivation]\nat main.go:1739: calling [github.com/melihbirim/licensify/internal/tiers.LoadWithFallback]\nat main.go:1742: calling [github.com/melihbirim/licensify/internal/tiers.List]" ]
+        "github.com/melihbirim/licensify.validateConfig" [ fillcolor="lightblue" label="validateConfig" penwidth="0.5" tooltip="github.com/melihbirim/licensify.validateConfig | defined in main.go:310" ]
+        "github.com/melihbirim/licensify.initDB" [ fillcolor="lightblue" label="initDB" penwidth="0.5" tooltip="github.com/melihbirim/licensify.initDB | defined in main.go:367" ]
+        "github.com/melihbirim/licensify.handleInit" [ fillcolor="lightblue" label="handleInit" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleInit | defined in main.go:576" ]
+        "github.com/melihbirim/licensify.rateLimitMiddleware" [ fillcolor="lightblue" label="rateLimitMiddleware" penwidth="0.5" tooltip="github.com/melihbirim/licensify.rateLimitMiddleware | defined in main.go:136" ]
+        "github.com/melihbirim/licensify.handleVerify" [ fillcolor="lightblue" label="handleVerify" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleVerify | defined in main.go:651" ]
+        "github.com/melihbirim/licensify.handleActivation" [ fillcolor="lightblue" label="handleActivation" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleActivation | defined in main.go:823" ]
+        "github.com/melihbirim/licensify.handleCheck" [ fillcolor="lightblue" label="handleCheck" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleCheck | defined in main.go:524" ]
+        "github.com/melihbirim/licensify.handleUsageReport" [ label="handleUsageReport" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleUsageReport | defined in main.go:999" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify.handleProxy" [ fillcolor="lightblue" label="handleProxy" penwidth="0.5" tooltip="github.com/melihbirim/licensify.handleProxy | defined in main.go:1426" ]
+        "github.com/melihbirim/licensify.main$1" [ tooltip="github.com/melihbirim/licensify.main$1 | defined in main.go:1814" fillcolor="lightblue" label="main$1" style="dotted,filled" ]
+        "github.com/melihbirim/licensify.encryptAPIKeyBundle" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify.encryptAPIKeyBundle | defined in main.go:1170\nat main.go:1195: calling [github.com/melihbirim/licensify.deriveKey]" fillcolor="lightblue" label="encryptAPIKeyBundle" ]
+        "github.com/melihbirim/licensify.getUsage" [ fillcolor="lightblue" label="getUsage" penwidth="0.5" tooltip="github.com/melihbirim/licensify.getUsage | defined in main.go:1152\nat main.go:1157: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1157: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1165: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1165: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+        "github.com/melihbirim/licensify.redactEmail" [ label="redactEmail" penwidth="0.5" tooltip="github.com/melihbirim/licensify.redactEmail | defined in main.go:75\nat main.go:86: calling [github.com/melihbirim/licensify.min]" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify.min" [ fillcolor="lightblue" label="min" penwidth="0.5" tooltip="github.com/melihbirim/licensify.min | defined in main.go:89" ]
+        "github.com/melihbirim/licensify.storeProxyKey" [ fillcolor="lightblue" label="storeProxyKey" penwidth="0.5" tooltip="github.com/melihbirim/licensify.storeProxyKey | defined in main.go:787\nat main.go:796: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:796: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+        
+        subgraph "cluster_github.com/joho/godotenv" {
+        label="godotenv";
+penwidth="0.8";
+style="filled";
+URL="/?f=github.com/joho/godotenv";
+tooltip="package: github.com/joho/godotenv";
+fontsize="16";
+fillcolor="lightyellow";
+fontname="Tahoma bold";
+rank="sink";
+        
+        "github.com/joho/godotenv.Load" [ fillcolor="moccasin" label="Load" penwidth="1.5" tooltip="github.com/joho/godotenv.Load | defined in godotenv.go:51" ]
+        
+    }
+
+        subgraph "cluster_github.com/melihbirim/licensify/internal/tiers" {
+        penwidth="0.8";
+fontsize="16";
+fontname="Tahoma bold";
+rank="sink";
+label="tiers";
+URL="/?f=github.com/melihbirim/licensify/internal/tiers";
+tooltip="package: github.com/melihbirim/licensify/internal/tiers";
+style="filled";
+fillcolor="lightyellow";
+        
+        "github.com/melihbirim/licensify/internal/tiers.GetAllVisible" [ penwidth="1.5" tooltip="github.com/melihbirim/licensify/internal/tiers.GetAllVisible | defined in tiers.go:190" fillcolor="moccasin" label="GetAllVisible" ]
+        "github.com/melihbirim/licensify/internal/tiers.LoadWithFallback" [ fillcolor="moccasin" label="LoadWithFallback" penwidth="1.5" tooltip="github.com/melihbirim/licensify/internal/tiers.LoadWithFallback | defined in tiers.go:205" ]
+        "github.com/melihbirim/licensify/internal/tiers.List" [ fillcolor="moccasin" label="List" penwidth="1.5" tooltip="github.com/melihbirim/licensify/internal/tiers.List | defined in tiers.go:152" ]
+        
+    }
+
+        subgraph "cluster_golang.org/x/crypto/argon2" {
+        penwidth="0.8";
+fontsize="16";
+style="filled";
+fillcolor="lightyellow";
+label="argon2";
+fontname="Tahoma bold";
+rank="sink";
+URL="/?f=golang.org/x/crypto/argon2";
+tooltip="package: golang.org/x/crypto/argon2";
+        
+        "golang.org/x/crypto/argon2.IDKey" [ penwidth="1.5" tooltip="golang.org/x/crypto/argon2.IDKey | defined in argon2.go:100" fillcolor="moccasin" label="IDKey" ]
+        
+    }
+
+        subgraph "cluster_golang.org/x/time/rate" {
+        style="filled";
+fillcolor="lightyellow";
+fontname="Tahoma bold";
+rank="sink";
+URL="/?f=golang.org/x/time/rate";
+label="rate";
+tooltip="package: golang.org/x/time/rate";
+penwidth="0.8";
+fontsize="16";
+        
+        "golang.org/x/time/rate.NewLimiter" [ penwidth="1.5" tooltip="golang.org/x/time/rate.NewLimiter | defined in rate.go:100" fillcolor="moccasin" label="NewLimiter" ]
+        
+        subgraph "cluster_*golang.org/x/time/rate.Limiter" {
+        fontcolor="#222222";
+labelloc="b";
+style="rounded,filled";
+fillcolor="wheat2";
+label="(*Limiter)";
+tooltip="type: *golang.org/x/time/rate.Limiter";
+penwidth="0.5";
+fontsize="15";
+        
+        "(*golang.org/x/time/rate.Limiter).Tokens" [ fillcolor="moccasin" label="Tokens" penwidth="1.5" tooltip="(*golang.org/x/time/rate.Limiter).Tokens | defined in rate.go:94" ]
+        
+    }
+
+    }
+
+    }
+
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleInit" [ tooltip="at main.go:1765: calling [github.com/melihbirim/licensify.handleInit]" ]
+    "github.com/melihbirim/licensify.recordActivation" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1117: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1117: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.deriveKey" -> "golang.org/x/crypto/argon2.IDKey" [ color="saddlebrown" tooltip="at main.go:1244: calling [golang.org/x/crypto/argon2.IDKey]" ]
+    "github.com/melihbirim/licensify.loadConfig" -> "github.com/melihbirim/licensify.getEnv" [ tooltip="at main.go:279: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:280: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:284: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:293: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:294: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:295: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:296: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:297: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:298: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:299: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:301: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:302: calling [github.com/melihbirim/licensify.getEnv]\nat main.go:303: calling [github.com/melihbirim/licensify.getEnv]" ]
+    "github.com/melihbirim/licensify.validateProxySignature" -> "github.com/melihbirim/licensify.abs" [ tooltip="at main.go:1401: calling [github.com/melihbirim/licensify.abs]" ]
+    "github.com/melihbirim/licensify.getLicense" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1063: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1086: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1086: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.loadConfig" [ tooltip="at main.go:1731: calling [github.com/melihbirim/licensify.loadConfig]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.initDB" [ tooltip="at main.go:1745: calling [github.com/melihbirim/licensify.initDB]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.main$1" [ arrowhead="normalnoneodot" tooltip="at main.go:1814: calling [github.com/melihbirim/licensify.main$1]" ]
+    "github.com/melihbirim/licensify.handleTiers" -> "github.com/melihbirim/licensify/internal/tiers.GetAllVisible" [ tooltip="at main.go:476: calling [github.com/melihbirim/licensify/internal/tiers.GetAllVisible]" color="saddlebrown" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleVerify" [ tooltip="at main.go:1766: calling [github.com/melihbirim/licensify.handleVerify]" ]
+    "github.com/melihbirim/licensify.redactEmail" -> "github.com/melihbirim/licensify.min" [ tooltip="at main.go:86: calling [github.com/melihbirim/licensify.min]" ]
+    "github.com/melihbirim/licensify.isFreeHardwareAlreadyActive" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1133: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1133: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.getActivationCount" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1100: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.rateLimitMiddleware" [ tooltip="at main.go:1765: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1766: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1767: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1768: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1769: calling [github.com/melihbirim/licensify.rateLimitMiddleware]\nat main.go:1773: calling [github.com/melihbirim/licensify.rateLimitMiddleware]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleCheck" [ tooltip="at main.go:1768: calling [github.com/melihbirim/licensify.handleCheck]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleUsageReport" [ tooltip="at main.go:1769: calling [github.com/melihbirim/licensify.handleUsageReport]" ]
+    "github.com/melihbirim/licensify.getLicense" -> "github.com/melihbirim/licensify.redactPII" [ tooltip="at main.go:1088: calling [github.com/melihbirim/licensify.redactPII]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.validateConfig" [ tooltip="at main.go:1734: calling [github.com/melihbirim/licensify.validateConfig]" ]
+    "github.com/melihbirim/licensify.validateProxyKey" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:819: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.generateLicenseKey" -> "github.com/melihbirim/licensify.randomString" [ tooltip="at main.go:1275: calling [github.com/melihbirim/licensify.randomString]\nat main.go:1276: calling [github.com/melihbirim/licensify.randomString]" ]
+    "github.com/melihbirim/licensify.recordCheckIn" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1149: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/joho/godotenv.Load" [ tooltip="at main.go:1728: calling [github.com/joho/godotenv.Load]" color="saddlebrown" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleProxy" [ tooltip="at main.go:1773: calling [github.com/melihbirim/licensify.handleProxy]" ]
+    "github.com/melihbirim/licensify.getUsage" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1157: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1157: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1165: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1165: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.storeProxyKey" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:796: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:796: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:805: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.sendLicenseEmail" -> "github.com/melihbirim/licensify.sendResendEmail" [ tooltip="at main.go:1356: calling [github.com/melihbirim/licensify.sendResendEmail]" ]
+    "github.com/melihbirim/licensify.sendVerificationEmail" -> "github.com/melihbirim/licensify.sendResendEmail" [ tooltip="at main.go:1322: calling [github.com/melihbirim/licensify.sendResendEmail]" ]
+    "github.com/melihbirim/licensify.isHardwareActivated" -> "github.com/melihbirim/licensify.sqlPlaceholder" [ tooltip="at main.go:1109: calling [github.com/melihbirim/licensify.sqlPlaceholder]\nat main.go:1109: calling [github.com/melihbirim/licensify.sqlPlaceholder]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.cleanupIPLimiters" [ arrowhead="normalnoneodot" tooltip="at main.go:1760: calling [github.com/melihbirim/licensify.cleanupIPLimiters]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify.handleActivation" [ tooltip="at main.go:1767: calling [github.com/melihbirim/licensify.handleActivation]" ]
+    "github.com/melihbirim/licensify.cleanupIPLimiters" -> "(*golang.org/x/time/rate.Limiter).Tokens" [ color="saddlebrown" tooltip="at main.go:126: calling [(*golang.org/x/time/rate.Limiter).Tokens]" ]
+    "github.com/melihbirim/licensify.getLicense" -> "github.com/melihbirim/licensify.generateSalt" [ tooltip="at main.go:1081: calling [github.com/melihbirim/licensify.generateSalt]" ]
+    "github.com/melihbirim/licensify.getIPLimiter" -> "golang.org/x/time/rate.NewLimiter" [ color="saddlebrown" tooltip="at main.go:104: calling [golang.org/x/time/rate.NewLimiter]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify/internal/tiers.LoadWithFallback" [ tooltip="at main.go:1739: calling [github.com/melihbirim/licensify/internal/tiers.LoadWithFallback]" color="saddlebrown" ]
+    "github.com/melihbirim/licensify.encryptAPIKeyBundle" -> "github.com/melihbirim/licensify.deriveKey" [ tooltip="at main.go:1195: calling [github.com/melihbirim/licensify.deriveKey]" ]
+    "github.com/melihbirim/licensify.main" -> "github.com/melihbirim/licensify/internal/tiers.List" [ color="saddlebrown" tooltip="at main.go:1742: calling [github.com/melihbirim/licensify/internal/tiers.List]" ]
+}

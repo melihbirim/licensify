@@ -1,0 +1,29 @@
+@startuml
+namespace tiers {
+    class "TierConfig" << (S,Aquamarine) >> {
+        + Tiers <font color=blue>map</font>[string]*TierDetails
+
+    }
+    class "TierDetails" << (S,Aquamarine) >> {
+        + Name string
+        + DailyLimit int
+        + MonthlyLimit int
+        + MaxDevices int
+        + Features []string
+        + EmailVerificationRequired bool
+        + PriceMonthly float64
+        + OneTimePayment float64
+        + CustomPricing bool
+        + Hidden bool
+        + Deprecated bool
+        + MigrateTo string
+        + Description string
+
+    }
+}
+
+
+
+hide fields
+hide methods
+@enduml

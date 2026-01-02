@@ -1,0 +1,220 @@
+digraph gocallvis {
+    label="";
+    labeljust="l";
+    fontname="Arial";
+    fontsize="14";
+    rankdir="LR";
+    bgcolor="lightgray";
+    style="solid";
+    penwidth="0.5";
+    pad="0.0";
+    nodesep="0.35";
+
+    node [shape="box" style="filled,rounded" fillcolor="honeydew" fontname="Verdana" penwidth="1.0" margin="0.16,0.0"];
+    edge [minlen="2"]
+
+    subgraph "cluster_focus" {
+        bgcolor="#e6ecfa";
+label="main";
+labelloc="t";
+labeljust="c";
+fontsize="18";
+        
+        "github.com/melihbirim/licensify/cmd/licensify-cli.main" [ fillcolor="lightblue" label="main" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.main | defined in main.go:41\nat main.go:42: calling [(*github.com/spf13/cobra.Command).Execute]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#2" [ label="init#2" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#2 | defined in commands.go:30\nat commands.go:31: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:32: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:31: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:32: calling [(*github.com/spf13/cobra.Command).Flags]" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ fillcolor="lightblue" label="loadConfig" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig | defined in config.go:34\nat config.go:45: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getEnv]\nat config.go:35: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ fillcolor="lightblue" label="getConfigPath" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath | defined in config.go:22" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getEnv" [ fillcolor="lightblue" label="getEnv" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getEnv | defined in config.go:84" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runInit | defined in commands.go:35\nat commands.go:90: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]\nat commands.go:85: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat commands.go:106: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat commands.go:86: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat commands.go:107: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat commands.go:92: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:94: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense]\nat commands.go:36: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat commands.go:110: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" fillcolor="lightblue" label="runInit" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ label="saveConfig" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig | defined in config.go:70\nat config.go:71: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient" [ label="newHTTPClient" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient | defined in client.go:17" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ fillcolor="lightblue" label="printInfo" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.printInfo | defined in config.go:106" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.printError" [ label="printError" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.printError | defined in config.go:102" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ fillcolor="lightblue" label="printSuccess" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess | defined in config.go:98" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigPath" [ tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runConfigPath | defined in config_cmd.go:149\nat config_cmd.go:150: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]\nat config_cmd.go:159: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat config_cmd.go:166: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" fillcolor="lightblue" label="runConfigPath" penwidth="0.5" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID" [ fillcolor="lightblue" label="getHardwareID" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID | defined in hardware.go:13\nat hardware.go:19: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getMacOSHardwareID]\nat hardware.go:21: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getLinuxHardwareID]\nat hardware.go:23: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getWindowsHardwareID]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getMacOSHardwareID" [ label="getMacOSHardwareID" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getMacOSHardwareID | defined in hardware.go:37" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getLinuxHardwareID" [ tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getLinuxHardwareID | defined in hardware.go:82" fillcolor="lightblue" label="getLinuxHardwareID" penwidth="0.5" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.getWindowsHardwareID" [ label="getWindowsHardwareID" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.getWindowsHardwareID | defined in hardware.go:113" fillcolor="lightblue" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#6" [ fillcolor="lightblue" label="init#6" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#6 | defined in config_cmd.go:181\nat config_cmd.go:182: calling [(*github.com/spf13/cobra.Command).AddCommand]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigExport" [ fillcolor="lightblue" label="runConfigExport" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runConfigExport | defined in config_cmd.go:185\nat config_cmd.go:186: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#3" [ fillcolor="lightblue" label="init#3" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#3 | defined in commands.go:135\nat commands.go:139: calling [(*github.com/spf13/cobra.Command).MarkFlagRequired]\nat commands.go:136: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:137: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:138: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:136: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:137: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:138: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#5" [ fillcolor="lightblue" label="init#5" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#5 | defined in config_cmd.go:54\nat config_cmd.go:55: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:56: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:57: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:58: calling [(*github.com/spf13/cobra.Command).AddCommand]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#4" [ tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#4 | defined in commands.go:222\nat commands.go:223: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:224: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:223: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:224: calling [(*github.com/spf13/pflag.FlagSet).StringVar]" fillcolor="lightblue" label="init#4" penwidth="0.5" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" [ fillcolor="lightblue" label="runVerify" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runVerify | defined in commands.go:142\nat commands.go:143: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat commands.go:180: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat commands.go:152: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:169: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:196: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:194: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat commands.go:167: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]\nat commands.go:193: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat commands.go:171: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigReset" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runConfigReset | defined in config_cmd.go:126\nat config_cmd.go:127: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]\nat config_cmd.go:134: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat config_cmd.go:143: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" fillcolor="lightblue" label="runConfigReset" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" [ fillcolor="lightblue" label="runCheck" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runCheck | defined in check.go:27\nat check.go:52: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat check.go:104: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat check.go:44: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat check.go:102: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat check.go:46: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense]\nat check.go:56: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat check.go:28: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat check.go:42: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigShow" [ fillcolor="lightblue" label="runConfigShow" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runConfigShow | defined in config_cmd.go:61\nat config_cmd.go:72: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:78: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:62: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat config_cmd.go:87: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.redactKey" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.redactKey | defined in config.go:91" fillcolor="lightblue" label="redactKey" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init" [ fillcolor="lightblue" label="init" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init | defined in .:0\nat config_cmd.go:34: calling [github.com/spf13/cobra.ExactArgs]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#3]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#5]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#1]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#6]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#7]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#2]\nat .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#4]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#1" [ tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#1 | defined in check.go:23\nat check.go:24: calling [(*github.com/spf13/cobra.Command).Flags]\nat check.go:24: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" fillcolor="lightblue" label="init#1" penwidth="0.5" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" [ fillcolor="lightblue" label="init#7" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.init#7 | defined in main.go:26\nat main.go:30: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat main.go:30: calling [(*github.com/spf13/cobra.Command).PersistentFlags]\nat main.go:33: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:34: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:35: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:36: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:37: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:38: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:27: calling [(*github.com/spf13/cobra.Command).SetVersionTemplate]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet" [ fillcolor="lightblue" label="runConfigSet" penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet | defined in config_cmd.go:93\nat config_cmd.go:108: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:111: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:97: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat config_cmd.go:105: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:108: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:111: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:114: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:119: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runActivate | defined in commands.go:227\nat commands.go:228: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat commands.go:246: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID]\nat commands.go:251: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat commands.go:277: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat commands.go:278: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat commands.go:273: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat commands.go:267: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat commands.go:274: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat commands.go:258: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense]\nat commands.go:245: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:256: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:251: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:254: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" fillcolor="lightblue" label="runActivate" ]
+        "github.com/melihbirim/licensify/cmd/licensify-cli.runStatus" [ penwidth="0.5" tooltip="github.com/melihbirim/licensify/cmd/licensify-cli.runStatus | defined in status.go:18\nat status.go:40: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat status.go:45: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat status.go:19: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]\nat status.go:25: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" fillcolor="lightblue" label="runStatus" ]
+        
+        subgraph "cluster_*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient" {
+        tooltip="type: *github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient";
+penwidth="0.5";
+fontsize="15";
+fontcolor="#222222";
+labelloc="b";
+style="rounded,filled";
+fillcolor="lightsteelblue";
+label="(*HTTPClient)";
+        
+        "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense" [ fillcolor="lightblue" label="requestLicense" penwidth="0.5" tooltip="(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense | defined in client.go:83\nat client.go:84: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+        "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post" [ fillcolor="lightblue" label="post" penwidth="0.5" tooltip="(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post | defined in client.go:26" ]
+        "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail" [ fillcolor="lightblue" label="verifyEmail" penwidth="0.5" tooltip="(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail | defined in client.go:117\nat client.go:118: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+        "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense" [ fillcolor="lightblue" label="checkLicense" penwidth="0.5" tooltip="(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense | defined in client.go:182\nat client.go:183: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+        "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense" [ fillcolor="lightblue" label="activateLicense" penwidth="0.5" tooltip="(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense | defined in client.go:149\nat client.go:150: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+        
+    }
+
+        subgraph "cluster_github.com/spf13/cobra" {
+        penwidth="0.8";
+fillcolor="lightyellow";
+fontname="Tahoma bold";
+rank="sink";
+label="cobra";
+tooltip="package: github.com/spf13/cobra";
+fontsize="16";
+style="filled";
+URL="/?f=github.com/spf13/cobra";
+        
+        "github.com/spf13/cobra.ExactArgs" [ penwidth="1.5" tooltip="github.com/spf13/cobra.ExactArgs | defined in args.go:94" fillcolor="moccasin" label="ExactArgs" ]
+        
+        subgraph "cluster_*github.com/spf13/cobra.Command" {
+        tooltip="type: *github.com/spf13/cobra.Command";
+penwidth="0.5";
+fontsize="15";
+fontcolor="#222222";
+labelloc="b";
+style="rounded,filled";
+fillcolor="wheat2";
+label="(*Command)";
+        
+        "(*github.com/spf13/cobra.Command).Execute" [ penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).Execute | defined in command.go:1070" fillcolor="moccasin" label="Execute" ]
+        "(*github.com/spf13/cobra.Command).Flags" [ fillcolor="moccasin" label="Flags" penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).Flags | defined in command.go:1688" ]
+        "(*github.com/spf13/cobra.Command).AddCommand" [ fillcolor="moccasin" label="AddCommand" penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).AddCommand | defined in command.go:1342" ]
+        "(*github.com/spf13/cobra.Command).MarkFlagRequired" [ fillcolor="moccasin" label="MarkFlagRequired" penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).MarkFlagRequired | defined in shell_completions.go:24" ]
+        "(*github.com/spf13/cobra.Command).SetVersionTemplate" [ fillcolor="moccasin" label="SetVersionTemplate" penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).SetVersionTemplate | defined in command.go:367" ]
+        "(*github.com/spf13/cobra.Command).PersistentFlags" [ fillcolor="moccasin" label="PersistentFlags" penwidth="1.5" tooltip="(*github.com/spf13/cobra.Command).PersistentFlags | defined in command.go:1775" ]
+        
+    }
+
+    }
+
+        subgraph "cluster_github.com/spf13/pflag" {
+        label="pflag";
+URL="/?f=github.com/spf13/pflag";
+tooltip="package: github.com/spf13/pflag";
+penwidth="0.8";
+fontsize="16";
+fontname="Tahoma bold";
+rank="sink";
+style="filled";
+fillcolor="lightyellow";
+        
+        
+        subgraph "cluster_*github.com/spf13/pflag.FlagSet" {
+        style="rounded,filled";
+fillcolor="wheat2";
+label="(*FlagSet)";
+tooltip="type: *github.com/spf13/pflag.FlagSet";
+penwidth="0.5";
+fontsize="15";
+fontcolor="#222222";
+labelloc="b";
+        
+        "(*github.com/spf13/pflag.FlagSet).StringVarP" [ fillcolor="moccasin" label="StringVarP" penwidth="1.5" tooltip="(*github.com/spf13/pflag.FlagSet).StringVarP | defined in string.go:41" ]
+        "(*github.com/spf13/pflag.FlagSet).StringVar" [ fillcolor="moccasin" label="StringVar" penwidth="1.5" tooltip="(*github.com/spf13/pflag.FlagSet).StringVar | defined in string.go:36" ]
+        
+    }
+
+    }
+
+    }
+
+    "github.com/melihbirim/licensify/cmd/licensify-cli.main" -> "(*github.com/spf13/cobra.Command).Execute" [ color="saddlebrown" tooltip="at main.go:42: calling [(*github.com/spf13/cobra.Command).Execute]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#4" -> "(*github.com/spf13/cobra.Command).Flags" [ color="saddlebrown" tooltip="at commands.go:223: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:224: calling [(*github.com/spf13/cobra.Command).Flags]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at commands.go:228: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID" [ tooltip="at commands.go:246: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.redactKey" [ tooltip="at commands.go:251: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat commands.go:277: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat commands.go:278: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ tooltip="at commands.go:273: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runStatus" -> "github.com/melihbirim/licensify/cmd/licensify-cli.redactKey" [ tooltip="at status.go:40: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat status.go:45: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#3" -> "(*github.com/spf13/cobra.Command).MarkFlagRequired" [ color="saddlebrown" tooltip="at commands.go:139: calling [(*github.com/spf13/cobra.Command).MarkFlagRequired]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at commands.go:143: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printError" [ tooltip="at check.go:52: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat check.go:104: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runStatus" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at status.go:19: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigPath" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ tooltip="at config_cmd.go:150: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getMacOSHardwareID" [ tooltip="at hardware.go:19: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getMacOSHardwareID]" ]
+    "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post" [ tooltip="at client.go:118: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient" [ tooltip="at commands.go:90: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet" -> "github.com/melihbirim/licensify/cmd/licensify-cli.redactKey" [ tooltip="at config_cmd.go:108: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:111: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ tooltip="at commands.go:85: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]\nat commands.go:106: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#3" -> "(*github.com/spf13/cobra.Command).Flags" [ tooltip="at commands.go:136: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:137: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:138: calling [(*github.com/spf13/cobra.Command).Flags]" color="saddlebrown" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigShow" -> "github.com/melihbirim/licensify/cmd/licensify-cli.redactKey" [ tooltip="at config_cmd.go:72: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]\nat config_cmd.go:78: calling [github.com/melihbirim/licensify/cmd/licensify-cli.redactKey]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/spf13/cobra.ExactArgs" [ color="saddlebrown" tooltip="at config_cmd.go:34: calling [github.com/spf13/cobra.ExactArgs]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#3" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#3]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" -> "(*github.com/spf13/pflag.FlagSet).StringVarP" [ color="saddlebrown" tooltip="at main.go:30: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runStatus" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at status.go:25: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at commands.go:180: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at check.go:44: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#1" -> "(*github.com/spf13/cobra.Command).Flags" [ color="saddlebrown" tooltip="at check.go:24: calling [(*github.com/spf13/cobra.Command).Flags]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#5" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#5]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigPath" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at config_cmd.go:159: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat config_cmd.go:166: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ tooltip="at check.go:102: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at commands.go:267: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printError" [ tooltip="at commands.go:274: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#2" -> "(*github.com/spf13/pflag.FlagSet).StringVarP" [ tooltip="at commands.go:31: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:32: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" color="saddlebrown" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printError" [ tooltip="at commands.go:86: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]\nat commands.go:107: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#5" -> "(*github.com/spf13/cobra.Command).AddCommand" [ color="saddlebrown" tooltip="at config_cmd.go:55: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:56: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:57: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat config_cmd.go:58: calling [(*github.com/spf13/cobra.Command).AddCommand]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#1" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#1]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense" [ tooltip="at commands.go:258: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigExport" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at config_cmd.go:186: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at commands.go:152: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:169: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:196: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printError" [ tooltip="at commands.go:194: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printError]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" -> "(*github.com/spf13/cobra.Command).PersistentFlags" [ color="saddlebrown" tooltip="at main.go:30: calling [(*github.com/spf13/cobra.Command).PersistentFlags]" ]
+    "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).activateLicense" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post" [ tooltip="at client.go:150: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ tooltip="at config.go:71: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+    "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post" [ tooltip="at client.go:84: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#4" -> "(*github.com/spf13/pflag.FlagSet).StringVarP" [ color="saddlebrown" tooltip="at commands.go:223: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#6" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#6]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#7]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getEnv" [ tooltip="at config.go:45: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getEnv]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at commands.go:92: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense" [ tooltip="at commands.go:94: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).requestLicense]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient" [ tooltip="at commands.go:167: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ tooltip="at commands.go:193: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense" [ tooltip="at check.go:46: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#1" -> "(*github.com/spf13/pflag.FlagSet).StringVarP" [ color="saddlebrown" tooltip="at check.go:24: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runVerify" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail" [ tooltip="at commands.go:171: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).verifyEmail]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigReset" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ tooltip="at config_cmd.go:127: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at check.go:56: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" -> "(*github.com/spf13/cobra.Command).AddCommand" [ color="saddlebrown" tooltip="at main.go:33: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:34: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:35: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:36: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:37: calling [(*github.com/spf13/cobra.Command).AddCommand]\nat main.go:38: calling [(*github.com/spf13/cobra.Command).AddCommand]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at commands.go:36: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runInit" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at commands.go:110: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#6" -> "(*github.com/spf13/cobra.Command).AddCommand" [ color="saddlebrown" tooltip="at config_cmd.go:182: calling [(*github.com/spf13/cobra.Command).AddCommand]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at config_cmd.go:97: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at config_cmd.go:105: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:108: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:111: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]\nat config_cmd.go:114: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getLinuxHardwareID" [ tooltip="at hardware.go:21: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getLinuxHardwareID]" ]
+    "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).checkLicense" -> "(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post" [ tooltip="at client.go:183: calling [(*github.com/melihbirim/licensify/cmd/licensify-cli.HTTPClient).post]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#7" -> "(*github.com/spf13/cobra.Command).SetVersionTemplate" [ color="saddlebrown" tooltip="at main.go:27: calling [(*github.com/spf13/cobra.Command).SetVersionTemplate]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at commands.go:245: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:256: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]\nat commands.go:251: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ tooltip="at config.go:35: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.getHardwareID" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getWindowsHardwareID" [ tooltip="at hardware.go:23: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getWindowsHardwareID]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#3" -> "(*github.com/spf13/pflag.FlagSet).StringVarP" [ color="saddlebrown" tooltip="at commands.go:136: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:137: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]\nat commands.go:138: calling [(*github.com/spf13/pflag.FlagSet).StringVarP]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigReset" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printInfo" [ tooltip="at config_cmd.go:134: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printInfo]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigReset" -> "github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess" [ tooltip="at config_cmd.go:143: calling [github.com/melihbirim/licensify/cmd/licensify-cli.printSuccess]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at check.go:28: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#2" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#2]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigSet" -> "github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig" [ tooltip="at config_cmd.go:119: calling [github.com/melihbirim/licensify/cmd/licensify-cli.saveConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#2" -> "(*github.com/spf13/cobra.Command).Flags" [ color="saddlebrown" tooltip="at commands.go:31: calling [(*github.com/spf13/cobra.Command).Flags]\nat commands.go:32: calling [(*github.com/spf13/cobra.Command).Flags]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runCheck" -> "github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient" [ tooltip="at check.go:42: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigShow" -> "github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig" [ tooltip="at config_cmd.go:62: calling [github.com/melihbirim/licensify/cmd/licensify-cli.loadConfig]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runConfigShow" -> "github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath" [ tooltip="at config_cmd.go:87: calling [github.com/melihbirim/licensify/cmd/licensify-cli.getConfigPath]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init" -> "github.com/melihbirim/licensify/cmd/licensify-cli.init#4" [ tooltip="at .:0: calling [github.com/melihbirim/licensify/cmd/licensify-cli.init#4]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.runActivate" -> "github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient" [ tooltip="at commands.go:254: calling [github.com/melihbirim/licensify/cmd/licensify-cli.newHTTPClient]" ]
+    "github.com/melihbirim/licensify/cmd/licensify-cli.init#4" -> "(*github.com/spf13/pflag.FlagSet).StringVar" [ color="saddlebrown" tooltip="at commands.go:224: calling [(*github.com/spf13/pflag.FlagSet).StringVar]" ]
+}
