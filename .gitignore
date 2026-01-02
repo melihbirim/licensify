@@ -1,7 +1,8 @@
 # Binaries
 server
-licensify
-licensify-*
+/licensify
+/licensify-admin
+/licensify-cli
 *.exe
 *.exe~
 *.dll

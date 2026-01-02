@@ -47,6 +47,9 @@ build: ## Build binaries for current platform
 	@echo "Building $(BINARY_NAME)-admin..."
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY_NAME)-admin ./cmd/licensify-admin
 	@echo "Build complete: ./$(BINARY_NAME)-admin"
+	@echo "Building $(BINARY_NAME)-cli..."
+	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY_NAME)-cli ./cmd/licensify-cli
+	@echo "Build complete: ./$(BINARY_NAME)-cli"
 
 build-all: clean-dist ## Build binaries for all platforms
 	@echo "Building $(BINARY_NAME) v$(VERSION) for all platforms..."
