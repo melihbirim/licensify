@@ -97,6 +97,81 @@ graph TB
     style AI fill:#ff6b6b
 ```
 
+### Database Schema
+
+```mermaid
+erDiagram
+    LICENSES ||--o{ ACTIVATIONS : has
+    LICENSES ||--|| USAGE : tracks
+    
+    LICENSES {
+        string license_key PK
+        string customer_email
+        string tier
+        int daily_limit
+        int monthly_limit
+        timestamp expires_at
+        timestamp created_at
+    }
+    
+    ACTIVATIONS {
+        int id PK
+        string license_key FK
+        string hardware_id
+        timestamp activated_at
+        blob encrypted_key
+    }
+    
+    USAGE {
+        string license_key PK
+        int daily_count
+        int monthly_count
+        date last_reset_daily
+        date last_reset_monthly
+    }
+    
+    VERIFICATION_CODES {
+        string email PK
+        string code
+        string tier
+        timestamp expires_at
+        timestamp created_at
+    }
+```
+
+### License State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: POST /init
+    Pending --> Active: POST /verify (with code)
+    Active --> Activated: POST /activate (with hardware_id)
+    
+    Activated --> RateLimited: Daily/Monthly quota exceeded
+    RateLimited --> Activated: Quota reset (daily/monthly)
+    
+    Activated --> Expired: expires_at reached
+    Active --> Expired: expires_at reached
+    
+    Active --> Revoked: Admin revokes license
+    Activated --> Revoked: Admin revokes license
+    
+    Expired --> [*]
+    Revoked --> [*]
+    
+    note right of RateLimited
+        Returns 429
+        Usage tracked per license
+    end note
+    
+    note right of Activated
+        Can make API calls
+        Within rate limits
+    end note
+```
+
+📊 **More Diagrams:** See [docs/diagrams/](docs/diagrams/) for deployment architecture, rate limiting algorithm, and auto-generated code flows.
+
 ### License Flow Diagrams
 
 #### 1. Complete License Request Flow
