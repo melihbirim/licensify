@@ -91,7 +91,7 @@ jobs:
         if: ${{ matrix.db == 'sqlite' }}
         env:
           DB_TYPE: sqlite
-          DB_PATH: :memory:
+          DB_PATH: ":memory:"
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Run tests (PostgreSQL)
