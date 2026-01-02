@@ -40,10 +40,13 @@ lint: ## Run linters
 	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: brew install golangci-lint" && exit 1)
 	golangci-lint run --timeout=5m
 
-build: ## Build the binary for current platform
+build: ## Build binaries for current platform
 	@echo "Building $(BINARY_NAME) v$(VERSION) ($(GIT_COMMIT))..."
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY_NAME) main.go
 	@echo "Build complete: ./$(BINARY_NAME)"
+	@echo "Building $(BINARY_NAME)-admin..."
+	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY_NAME)-admin ./cmd/licensify-admin
+	@echo "Build complete: ./$(BINARY_NAME)-admin"
 
 build-all: clean-dist ## Build binaries for all platforms
 	@echo "Building $(BINARY_NAME) v$(VERSION) for all platforms..."
