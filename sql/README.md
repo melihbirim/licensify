@@ -36,6 +36,7 @@ YYYYMMDD_HHMMSS_description.sql
 ```
 
 Example:
+
 ```
 20260101_120000_add_user_metadata.sql
 ```
@@ -51,18 +52,21 @@ Example:
 ## Running Migrations
 
 Currently, migrations are not automated. The application will:
+
 1. Load the appropriate `init.sql` on first run
 2. Future versions will include a migration runner
 
 ## Database Differences
 
 ### SQLite
+
 - Uses `TEXT` for timestamps (ISO 8601 format)
 - Uses `INTEGER` for booleans (0/1)
 - Uses `AUTOINCREMENT` for auto-incrementing IDs
 - Uses `datetime()` functions for date math
 
 ### PostgreSQL
+
 - Uses `TIMESTAMP` for timestamps
 - Uses `BOOLEAN` type
 - Uses `SERIAL` for auto-incrementing IDs
