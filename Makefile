@@ -171,3 +171,10 @@ checksums: ## Generate checksums for release binaries
 	@cd $(BUILD_DIR) && shasum -a 256 licensify-* > checksums.txt
 	@echo "✓ Checksums saved to $(BUILD_DIR)/checksums.txt"
 	@cat $(BUILD_DIR)/checksums.txt
+
+diagrams: ## Generate flow diagrams from code
+	@echo "Generating flow diagrams..."
+	@./tools/generate-diagrams.sh
+
+docs: diagrams ## Generate all documentation
+	@echo "✓ Documentation generated"

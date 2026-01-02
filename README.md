@@ -67,6 +67,151 @@ Licensify solves both in one self-hosted deployment:
 
 ## Quick Start
 
+### Architecture Overview
+
+```mermaid
+graph TB
+    Client[Client Application]
+    CLI[licensify-cli]
+    Server[Licensify Server]
+    DB[(Database)]
+    Email[Email Service]
+    AI[AI APIs<br/>OpenAI/Anthropic]
+    
+    Client -->|License Flow| Server
+    CLI -->|License Management| Server
+    Server -->|Store| DB
+    Server -->|Verify Email| Email
+    
+    subgraph "Proxy Mode"
+        Client -->|API Calls| Server
+        Server -->|Proxied| AI
+    end
+    
+    subgraph "Direct Mode"
+        Client -.->|Encrypted Key| AI
+    end
+    
+    style Server fill:#4a90e2
+    style Client fill:#50c878
+    style AI fill:#ff6b6b
+```
+
+### License Flow Diagrams
+
+#### 1. Complete License Request Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI as licensify-cli
+    participant API as Licensify Server
+    participant DB as Database
+    participant Email as Email Service
+    
+    Note over User,Email: Step 1: Request License
+    User->>CLI: licensify init
+    CLI->>CLI: Prompt for email & tier
+    CLI->>API: POST /init
+    API->>DB: Create verification code
+    API->>Email: Send verification email
+    Email-->>User: 📧 6-digit code
+    API-->>CLI: Success: code sent
+    
+    Note over User,Email: Step 2: Verify Email
+    User->>CLI: licensify verify --code 123456
+    CLI->>API: POST /verify (email, code, tier)
+    API->>DB: Validate code & create license
+    API->>DB: Generate license key
+    API-->>CLI: Return license_key, tier, limits
+    CLI->>CLI: Save to ~/.licensify/config.json
+    
+    Note over User,Email: Step 3: Activate License
+    User->>CLI: licensify activate
+    CLI->>CLI: Detect hardware ID
+    CLI->>API: POST /activate (license_key, hardware_id)
+    API->>DB: Validate & store activation
+    API-->>CLI: Success + encrypted API bundle
+    CLI->>CLI: Store activation locally
+```
+
+#### 2. License Check Flow
+
+```mermaid
+sequenceDiagram
+    participant App as Client App
+    participant API as Licensify Server
+    participant DB as Database
+    participant Cache as Rate Limit Cache
+    
+    App->>API: POST /check (license_key, hardware_id)
+    API->>DB: Validate license
+    API->>DB: Check hardware_id match
+    API->>Cache: Check rate limits
+    
+    alt License Valid & Within Limits
+        API->>Cache: Increment usage counters
+        API-->>App: ✅ Valid (usage, limits, tier)
+    else License Invalid
+        API-->>App: ❌ Invalid (reason)
+    else Rate Limit Exceeded
+        API-->>App: ⚠️ Limit exceeded (daily/monthly)
+    end
+```
+
+#### 3. Proxy Mode Flow (Secure)
+
+```mermaid
+sequenceDiagram
+    participant App as Client App
+    participant Proxy as Licensify Proxy
+    participant DB as Database
+    participant AI as OpenAI/Anthropic
+    
+    App->>Proxy: POST /proxy/openai/chat/completions
+    Note over App,Proxy: Headers: X-License-Key, X-Hardware-ID
+    
+    Proxy->>DB: Validate license
+    Proxy->>DB: Check rate limits
+    
+    alt Valid & Within Limits
+        Proxy->>AI: Forward request with real API key
+        AI-->>Proxy: AI response
+        Proxy->>DB: Increment usage counter
+        Proxy-->>App: ✅ AI response
+    else Invalid License
+        Proxy-->>App: ❌ 401 Unauthorized
+    else Rate Limit Exceeded
+        Proxy-->>App: ⚠️ 429 Too Many Requests
+    end
+```
+
+#### 4. Direct Mode Flow (Encrypted Key Delivery)
+
+```mermaid
+sequenceDiagram
+    participant App as Client App
+    participant Server as Licensify Server
+    participant DB as Database
+    participant AI as OpenAI/Anthropic
+    
+    Note over App,AI: One-time Activation
+    App->>Server: POST /activate
+    Server->>DB: Validate & store
+    Server->>Server: Encrypt API key with AES-256-GCM
+    Server-->>App: Encrypted API bundle
+    App->>App: Decrypt & store key locally
+    
+    Note over App,AI: Subsequent API Calls
+    App->>AI: Direct API calls with decrypted key
+    AI-->>App: Response
+    
+    Note over App,AI: Periodic License Check
+    App->>Server: POST /check (validate license)
+    Server->>DB: Check license validity
+    Server-->>App: Valid/Invalid status
+```
+
 ### Getting Your First License
 
 **Complete Flow (3 Steps):**
@@ -568,6 +713,42 @@ description = "New improved free tier"
 - Clear audit trail
 
 📚 **Full Documentation:** [docs/tier-migration.md](docs/tier-migration.md)
+
+## Documentation & Diagrams
+
+### Flow Diagrams
+
+This README includes Mermaid sequence diagrams showing:
+- Complete license request flow (init → verify → activate)
+- License check flow with rate limiting
+- Proxy mode API flow
+- Direct mode encrypted key delivery
+
+### Auto-Generated Code Diagrams
+
+Generate flow diagrams automatically from the codebase:
+
+```bash
+# Generate all diagrams
+make diagrams
+
+# Or run the script directly
+./tools/generate-diagrams.sh
+```
+
+This creates:
+- **API handler call graphs** - Shows function call flows
+- **CLI command flows** - Visualizes CLI execution
+- **Package structure** - PlantUML class diagrams
+
+Diagrams are saved to `docs/diagrams/` and auto-generated on every push to main via GitHub Actions.
+
+**Tools used:**
+- `go-callvis` - Call graph visualization
+- `goplantuml` - UML diagrams from Go structs
+- Mermaid - Sequence diagrams (this README)
+
+See [docs/diagrams/README.md](docs/diagrams/README.md) for details.
 
 ## License
 
