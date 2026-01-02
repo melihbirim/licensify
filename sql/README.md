@@ -4,8 +4,7 @@ This directory contains SQL schema files and migrations for Licensify.
 
 ## Structure
 
-```
-sql/
+```sql/
 ├── sqlite/
 │   ├── init.sql          # Initial schema for SQLite
 │   └── migrations/       # Future migration files
@@ -31,15 +30,11 @@ Future database schema changes should be added as migration files in the `migrat
 
 ### Migration Naming Convention
 
-```
-YYYYMMDD_HHMMSS_description.sql
-```
+`YYYYMMDD_HHMMSS_description.sql`
 
 Example:
 
-```
-20260101_120000_add_user_metadata.sql
-```
+`20260101_120000_add_user_metadata.sql`
 
 ### Migration Best Practices
 
