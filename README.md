@@ -2,7 +2,7 @@
 
 **The only licensing server that protects your AI API keys.**
 
-*Self-hosted licensing + API key protection for AI-powered applications.*
+_Self-hosted licensing + API key protection for AI-powered applications._
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
@@ -11,11 +11,13 @@
 Building AI-powered CLI tools or desktop apps? You face two problems:
 
 **1. API Key Problem:**
+
 - 🔑 **OpenAI/Anthropic keys cost $100s/month** - Can't embed them in client apps
 - 🚨 **Desktop apps are easily reverse-engineered** - Keys get extracted and abused
 - 💸 **One leaked key = unlimited liability** - Your entire API budget stolen
 
 **2. Licensing Problem:**
+
 - 🔐 Need secure license verification without exposing secrets
 - 💳 Want free/pro/enterprise tiers with different limits
 - 📊 Must track and limit API usage per license
@@ -27,12 +29,14 @@ Licensify solves both in one self-hosted deployment:
 **🔐 Two Modes of Operation:**
 
 **Mode 1: Direct (Encrypted Key Delivery)**
+
 - Server encrypts and delivers API keys to activated clients
 - Client decrypts and uses key locally
 - AES-256-GCM encryption
 - Best for: Simple CLI tools, desktop apps with local execution
 
 **Mode 2: Proxy (Zero-Trust)**
+
 - ✅ **Keys NEVER leave your server** - True zero-trust architecture
 - ✅ **Server-side rate limiting** - Enforce quotas, impossible to bypass
 - ✅ **OpenAI + Anthropic support** - Proxy all AI API calls
@@ -96,6 +100,7 @@ ANTHROPIC_API_KEY=sk-xxx  # Anthropic proxy endpoint
 # Email verification (free tier)
 RESEND_API_KEY=re_xxx
 FROM_EMAIL=noreply@yourdomain.com
+REQUIRE_EMAIL_VERIFICATION=true  # Set to false for development/self-hosted
 
 # Database
 DB_PATH=activations.db         # SQLite (development, small scale)
@@ -103,12 +108,14 @@ DB_PATH=activations.db         # SQLite (development, small scale)
 ```
 
 **Database Options:**
+
 - **SQLite** (default): Perfect for development and small-scale deployments (<1000 licenses)
 - **PostgreSQL**: Recommended for production, handles concurrent requests better, required for horizontal scaling
 
 ### 3. Choose Your Mode
 
 **Direct Mode (Simple)**
+
 ```bash
 # Client receives encrypted API key
 # Best for: CLI tools, simple desktop apps
@@ -116,6 +123,7 @@ DB_PATH=activations.db         # SQLite (development, small scale)
 ```
 
 **Proxy Mode (Secure)**
+
 ```bash
 # Keys stay on server, client uses proxy endpoints
 # Best for: Production apps, maximum security
@@ -127,17 +135,21 @@ PROXY_MODE=true OPENAI_API_KEY=sk-xxx ./licensify
 ### Free Tier Flow (Email Verification)
 
 **1. POST /init** - Request verification code
+
 ```json
-{"email": "user@example.com"}
+{ "email": "user@example.com" }
 ```
 
 **2. POST /verify** - Verify code and get license
+
 ```json
-{"email": "user@example.com", "code": "123456"}
+{ "email": "user@example.com", "code": "123456" }
 ```
+
 Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_limit": 10}`
 
 **3. POST /activate** - Activate license on device
+
 ```json
 {
   "license_key": "LIC-202512-ABC123-XYZ789",
@@ -147,51 +159,62 @@ Returns: `{"success": true, "license_key": "LIC-...", "tier": "free", "daily_lim
 ```
 
 **Direct Mode Response:**
+
 ```json
 {
   "success": true,
   "encrypted_api_key": "base64_encrypted_data",
   "iv": "base64_iv",
-  "limits": {"daily_limit": 10, "monthly_limit": 300}
+  "limits": { "daily_limit": 10, "monthly_limit": 300 }
 }
 ```
 
 **Proxy Mode Response:**
+
 ```json
 {
   "success": true,
-  "encrypted_api_key": "encrypted_proxy_key_px_xxx",  // Use this for proxy calls
-  "limits": {"daily_limit": 10, "monthly_limit": 300}
+  "encrypted_api_key": "encrypted_proxy_key_px_xxx", // Use this for proxy calls
+  "limits": { "daily_limit": 10, "monthly_limit": 300 }
 }
 ```
 
 ### Proxy Mode Endpoints
 
-**POST /proxy/openai/*** - Proxy OpenAI requests
+**Important**: Proxy requests require HMAC-SHA256 signatures for security. See [docs/SECURITY.md](docs/SECURITY.md) for client integration examples.
+
+**POST /proxy/openai/\*** - Proxy OpenAI requests
+
 ```json
 {
   "proxy_key": "px_generated_from_activation",
   "provider": "openai",
   "body": {
     "model": "gpt-3.5-turbo",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }
+    "messages": [{ "role": "user", "content": "Hello" }]
+  },
+  "signature": "hmac_sha256_signature",
+  "timestamp": 1735689600
 }
 ```
 
-**POST /proxy/anthropic/*** - Proxy Anthropic requests
+**POST /proxy/anthropic/\*** - Proxy Anthropic requests
+
 ```json
 {
   "proxy_key": "px_generated_from_activation",
   "provider": "anthropic",
   "body": {
     "model": "claude-3-sonnet-20240229",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }
+    "messages": [{ "role": "user", "content": "Hello" }]
+  },
+  "signature": "hmac_sha256_signature",
+  "timestamp": 1735689600
 }
 ```
 
 Returns OpenAI/Anthropic response with rate limit headers:
+
 - `X-RateLimit-Limit: 10`
 - `X-RateLimit-Remaining: 9`
 - `X-RateLimit-Reset: 2025-12-24T00:00:00Z`
@@ -203,25 +226,44 @@ Returns OpenAI/Anthropic response with rate limit headers:
 
 ## Security Features
 
+**🔒 Production-Grade Security (2025 Updates):**
+
+- 🔐 **Argon2id Key Derivation**: Memory-hard encryption with per-license salt (replaces weak SHA256)
+- 🔏 **HMAC Request Signing**: Proxy endpoints require cryptographic signatures to prevent key theft
+- ⏱️ **Replay Attack Protection**: 5-minute timestamp window on all signed requests
+- 🛡️ **Constant-Time Comparison**: Prevents timing attacks on signature validation
+- ✅ **Startup Validation**: Server fails fast with clear errors if secrets are missing/invalid
+- 📝 **PII Redaction**: Email and license key redaction in logs (GDPR/CCPA compliant)
+- 🔄 **PostgreSQL Connection Pooling**: Production-tuned for high concurrency (25 max connections)
+- 💾 **SQLite WAL Mode**: ~30% performance improvement with Write-Ahead Logging
+
 **Proxy Mode (Maximum Security):**
+
 - 🔒 API keys NEVER leave server
 - 🚦 Server-side rate limiting (impossible to bypass)
 - 🛡️ Per-IP rate limiting (10 req/sec, DDoS protection)
 - 📊 Usage tracking per license
-- 🔐 Unique proxy keys per activation
+- 🔐 Unique proxy keys per activation with HMAC signatures
 
 **Direct Mode:**
+
 - 🔐 AES-256-GCM encryption for API keys
 - 🔑 Ed25519 signature verification
 - 🖥️ Hardware binding prevents license sharing
-- ✉️ Email verification for free tier
+- ✉️ Email verification for free tier (optional bypass for development)
 - 📈 Usage tracking and limits
 
 **General:**
+
 - ⚠️ HTTPS required in production
 - 🔒 One free license per hardware device
 - 🚫 Configurable activation limits per license
 - ✅ Graceful shutdown for zero-downtime deployments
+
+**📚 Security Documentation:**
+
+- See [docs/SECURITY.md](docs/SECURITY.md) for complete security audit and implementation details
+- Includes client integration examples for HMAC signing (JavaScript, Python, Go)
 
 ## Deployment
 
@@ -258,11 +300,13 @@ kill -TERM <pid>
 ```
 
 **Configuration:**
+
 ```env
 SHUTDOWN_TIMEOUT=30s  # Time to wait for active requests (default: 30s)
 ```
 
 This works seamlessly with:
+
 - **Docker**: `docker stop` sends SIGTERM
 - **Kubernetes**: Respects termination grace period
 - **systemd**: `systemctl stop` sends SIGTERM
@@ -271,6 +315,7 @@ This works seamlessly with:
 ### Cloud Platforms
 
 **Fly.io:**
+
 ```bash
 fly launch
 ```
@@ -284,25 +329,31 @@ Deploy Docker container with environment variables
 ### Environment Variables
 
 **Required:**
+
 - `PRIVATE_KEY` - Base64 Ed25519 private key (generate with `tools/keygen.go`)
 - `PORT` - Server port (default: 8080)
 
 **Optional:**
+
 - `SHUTDOWN_TIMEOUT` - Graceful shutdown timeout (default: 30s)
 
 **For Direct Mode:**
+
 - `PROTECTED_API_KEY` - API key to encrypt and deliver
 
 **For Proxy Mode:**
+
 - `PROXY_MODE=true`
 - `OPENAI_API_KEY` - For OpenAI proxy
 - `ANTHROPIC_API_KEY` - For Anthropic proxy
 
 **Email Verification (Free Tier):**
+
 - `RESEND_API_KEY` - Resend API key
 - `FROM_EMAIL` - Sender email address
 
 **Database:**
+
 - `DB_PATH` - SQLite path (default: activations.db, for dev/testing)
 - `DATABASE_URL` - PostgreSQL URL (recommended for production)
   - Example: `postgresql://user:pass@host:5432/licensify?sslmode=require`
@@ -310,12 +361,14 @@ Deploy Docker container with environment variables
 ### PostgreSQL Setup (Production)
 
 **Option 1: Managed Database**
+
 - **Fly.io Postgres**: `fly postgres create`
 - **Railway**: Add PostgreSQL from dashboard
 - **Supabase**: Free tier with connection pooling
 - **Neon**: Serverless PostgreSQL
 
 **Option 2: Self-hosted**
+
 ```bash
 docker run -d \
   -e POSTGRES_PASSWORD=yourpass \
@@ -325,6 +378,7 @@ docker run -d \
 ```
 
 Set `DATABASE_URL` and server will automatically use PostgreSQL:
+
 ```bash
 DATABASE_URL=postgresql://user:pass@host:5432/licensify ./licensify
 ```
@@ -334,6 +388,7 @@ Tables are created automatically on first run.
 ## Database Management
 
 **SQLite:**
+
 ```bash
 # View licenses
 sqlite3 activations.db "SELECT license_id, customer_email, tier, expires_at FROM licenses;"
@@ -349,6 +404,7 @@ sqlite3 activations.db "SELECT proxy_key, license_id FROM proxy_keys;"
 ```
 
 **PostgreSQL:**
+
 ```bash
 # Connect to database
 psql $DATABASE_URL
@@ -399,6 +455,7 @@ description = "Unlimited access with dedicated support"
 ```
 
 Set the config path via environment variable or use default:
+
 ```bash
 TIERS_CONFIG_PATH=tiers.toml ./licensify
 ```
@@ -450,6 +507,7 @@ description = "New improved free tier"
 ```
 
 **Migration Process:**
+
 - Validates source and target tiers exist
 - Shows preview with limit changes
 - Requires confirmation before proceeding
@@ -458,6 +516,7 @@ description = "New improved free tier"
 - Provides detailed success/failure report
 
 **Benefits:**
+
 - No code changes required
 - Flexible numeric naming (tier-1, tier-11, tier-100)
 - Safe batch migrations with dry-run mode

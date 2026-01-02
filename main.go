@@ -5,10 +5,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +28,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/melihbirim/licensify/internal/tiers"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/time/rate"
 	_ "modernc.org/sqlite"
 )
@@ -46,8 +49,9 @@ var (
 	BuildTime = "unknown"
 
 	// Rate limiting
-	ipLimiters   = make(map[string]*rate.Limiter)
-	ipLimitersMu sync.RWMutex
+	ipLimiters       = make(map[string]*rate.Limiter)
+	ipLimitersMu     sync.RWMutex
+	ipLimiterCleanup = 5 * time.Minute // Cleanup interval for rate limiters
 )
 
 // sqlPlaceholder returns the correct SQL placeholder for the database type
@@ -56,6 +60,37 @@ func sqlPlaceholder(n int) string {
 		return fmt.Sprintf("$%d", n)
 	}
 	return "?"
+}
+
+// redactPII returns a redacted version of sensitive data for logging
+// Shows first 4 and last 4 characters for identification without full exposure
+func redactPII(s string) string {
+	if len(s) <= 8 {
+		return "***"
+	}
+	return s[:4] + "..." + s[len(s)-4:]
+}
+
+// redactEmail redacts email addresses for logging
+func redactEmail(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return "***@***"
+	}
+	username := parts[0]
+	domain := parts[1]
+
+	if len(username) <= 2 {
+		return "***@" + domain
+	}
+	return username[:min(2, len(username))] + "***@" + domain
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // getIPLimiter returns rate limiter for IP address
@@ -72,6 +107,29 @@ func getIPLimiter(ip string) *rate.Limiter {
 	}
 
 	return limiter
+}
+
+// cleanupIPLimiters periodically removes inactive limiters to prevent memory leaks
+func cleanupIPLimiters(ctx context.Context) {
+	ticker := time.NewTicker(ipLimiterCleanup)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ipLimitersMu.Lock()
+			// Remove limiters that have had no recent activity
+			for ip, limiter := range ipLimiters {
+				// If limiter has full tokens (unused), remove it
+				if limiter.Tokens() >= 20 {
+					delete(ipLimiters, ip)
+				}
+			}
+			ipLimitersMu.Unlock()
+		}
+	}
 }
 
 // rateLimitMiddleware enforces per-IP rate limiting
@@ -102,28 +160,30 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // Config represents server configuration
 type Config struct {
-	Port            string
-	PrivateKeyB64   string
-	ProtectedAPIKey string
-	DatabasePath    string
-	DatabaseURL     string
-	ResendAPIKey    string
-	FromEmail       string
-	ProxyMode       bool
-	OpenAIKey       string
-	AnthropicKey    string
-	TiersConfigPath string
-	ShutdownTimeout time.Duration
+	Port                     string
+	PrivateKeyB64            string
+	ProtectedAPIKey          string
+	DatabasePath             string
+	DatabaseURL              string
+	ResendAPIKey             string
+	FromEmail                string
+	ProxyMode                bool
+	OpenAIKey                string
+	AnthropicKey             string
+	TiersConfigPath          string
+	ShutdownTimeout          time.Duration
+	RequireEmailVerification bool
 }
 
 // LicenseData represents license information
 type LicenseData struct {
-	LicenseID     string    `json:"license_id"`
-	CustomerName  string    `json:"customer_name"`
-	CustomerEmail string    `json:"customer_email"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	Tier          string    `json:"tier"`
-	Limits        struct {
+	LicenseID      string    `json:"license_id"`
+	CustomerName   string    `json:"customer_name"`
+	CustomerEmail  string    `json:"customer_email"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	Tier           string    `json:"tier"`
+	EncryptionSalt string    `json:"encryption_salt"` // For Argon2 key derivation
+	Limits         struct {
 		DailyLimit     int `json:"daily_limit"`
 		MonthlyLimit   int `json:"monthly_limit"`
 		MaxActivations int `json:"max_activations"`
@@ -217,6 +277,7 @@ type DecryptedData struct {
 
 func loadConfig() *Config {
 	proxyMode := getEnv("PROXY_MODE", "false") == "true"
+	requireEmailVerification := getEnv("REQUIRE_EMAIL_VERIFICATION", "true") == "true"
 
 	// Parse shutdown timeout with default of 30 seconds
 	shutdownTimeout := 30 * time.Second
@@ -224,24 +285,76 @@ func loadConfig() *Config {
 		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
 			shutdownTimeout = parsed
 		} else {
-			log.Printf("⚠️  Invalid SHUTDOWN_TIMEOUT value '%s', using default 30s", timeoutStr)
+			log.Printf("⚠️  Invalid SHUTDOWN_TIMEOUT format, using default 30s")
 		}
 	}
 
 	return &Config{
-		Port:            getEnv("PORT", DefaultPort),
-		PrivateKeyB64:   getEnv("PRIVATE_KEY", ""),
-		ProtectedAPIKey: getEnv("PROTECTED_API_KEY", ""),
-		DatabasePath:    getEnv("DB_PATH", DBFile),
-		DatabaseURL:     getEnv("DATABASE_URL", ""),
-		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
-		FromEmail:       getEnv("FROM_EMAIL", "noreply@licensify.com"),
-		ProxyMode:       proxyMode,
-		OpenAIKey:       getEnv("OPENAI_API_KEY", ""),
-		AnthropicKey:    getEnv("ANTHROPIC_API_KEY", ""),
-		TiersConfigPath: getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
-		ShutdownTimeout: shutdownTimeout,
+		Port:                     getEnv("PORT", DefaultPort),
+		DatabasePath:             getEnv("DB_PATH", DBFile),
+		DatabaseURL:              getEnv("DATABASE_URL", ""),
+		PrivateKeyB64:            getEnv("PRIVATE_KEY", ""),
+		ResendAPIKey:             getEnv("RESEND_API_KEY", ""),
+		FromEmail:                getEnv("FROM_EMAIL", ""),
+		ProtectedAPIKey:          getEnv("PROTECTED_API_KEY", ""),
+		ProxyMode:                proxyMode,
+		OpenAIKey:                getEnv("OPENAI_API_KEY", ""),
+		AnthropicKey:             getEnv("ANTHROPIC_API_KEY", ""),
+		TiersConfigPath:          getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
+		ShutdownTimeout:          shutdownTimeout,
+		RequireEmailVerification: requireEmailVerification,
 	}
+}
+
+// validateConfig checks that required configuration is present and valid
+func validateConfig(config *Config) error {
+	var errors []string
+
+	// Required: Private key for license signing
+	if config.PrivateKeyB64 == "" {
+		errors = append(errors, "PRIVATE_KEY is required for license signature verification")
+	} else {
+		// Validate it's valid base64 and correct length
+		keyBytes, err := base64.StdEncoding.DecodeString(config.PrivateKeyB64)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("PRIVATE_KEY is not valid base64: %v", err))
+		} else if len(keyBytes) != ed25519.PrivateKeySize {
+			errors = append(errors, fmt.Sprintf("PRIVATE_KEY has invalid length: got %d, want %d bytes", len(keyBytes), ed25519.PrivateKeySize))
+		}
+	}
+
+	// Required for direct mode: Protected API key
+	if !config.ProxyMode && config.ProtectedAPIKey == "" {
+		errors = append(errors, "PROTECTED_API_KEY is required when PROXY_MODE=false")
+	}
+
+	// Required for proxy mode: At least one upstream API key
+	if config.ProxyMode && config.OpenAIKey == "" && config.AnthropicKey == "" {
+		errors = append(errors, "PROXY_MODE=true requires at least one of OPENAI_API_KEY or ANTHROPIC_API_KEY")
+	}
+
+	// Email configuration for verification (conditional)
+	if config.RequireEmailVerification {
+		if config.ResendAPIKey == "" {
+			log.Printf("⚠️  REQUIRE_EMAIL_VERIFICATION=true but RESEND_API_KEY not set - email verification will fail")
+		}
+		if config.FromEmail == "" {
+			log.Printf("⚠️  REQUIRE_EMAIL_VERIFICATION=true but FROM_EMAIL not set - email verification will fail")
+		}
+	} else {
+		log.Printf("ℹ️  REQUIRE_EMAIL_VERIFICATION=false - email verification disabled (development mode)")
+	}
+
+	// Database configuration
+	if config.DatabaseURL == "" && config.DatabasePath == "" {
+		errors = append(errors, "Either DATABASE_URL (PostgreSQL) or DB_PATH (SQLite) must be set")
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errors, "\n  - "))
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -280,132 +393,47 @@ func initDB(dbPath, dbURL string) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Create tables with appropriate syntax
-	var schema string
+	// Configure connection pool settings
 	if isPostgresDB {
-		schema = `
-		CREATE TABLE IF NOT EXISTS licenses (
-			license_id TEXT PRIMARY KEY,
-			customer_name TEXT NOT NULL,
-			customer_email TEXT NOT NULL,
-			tier TEXT NOT NULL DEFAULT 'free',
-			expires_at TIMESTAMP NOT NULL,
-			daily_limit INTEGER NOT NULL,
-			monthly_limit INTEGER NOT NULL,
-			max_activations INTEGER NOT NULL,
-			active BOOLEAN DEFAULT true,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS activations (
-			id SERIAL PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS verification_codes (
-			email TEXT PRIMARY KEY,
-			code TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			expires_at TIMESTAMP NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS daily_usage (
-			id SERIAL PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			date TEXT NOT NULL,
-			scans INTEGER DEFAULT 0,
-			hardware_id TEXT NOT NULL,
-			UNIQUE(license_id, date),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS check_ins (
-			license_id TEXT NOT NULL PRIMARY KEY,
-			last_check_in TIMESTAMP NOT NULL,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS proxy_keys (
-			proxy_key TEXT PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
-		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
-		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
-		`
-	} else {
-		schema = `
-		CREATE TABLE IF NOT EXISTS licenses (
-			license_id TEXT PRIMARY KEY,
-			customer_name TEXT NOT NULL,
-			customer_email TEXT NOT NULL,
-			tier TEXT NOT NULL DEFAULT 'free',
-			expires_at DATETIME NOT NULL,
-			daily_limit INTEGER NOT NULL,
-			monthly_limit INTEGER NOT NULL,
-			max_activations INTEGER NOT NULL,
-			active BOOLEAN DEFAULT 1,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS activations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			activated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS verification_codes (
-			email TEXT PRIMARY KEY,
-			code TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			expires_at DATETIME NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS daily_usage (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			license_id TEXT NOT NULL,
-			date TEXT NOT NULL,
-			scans INTEGER DEFAULT 0,
-			hardware_id TEXT NOT NULL,
-			UNIQUE(license_id, date),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS check_ins (
-			license_id TEXT NOT NULL,
-			last_check_in DATETIME NOT NULL,
-			PRIMARY KEY (license_id),
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS proxy_keys (
-			proxy_key TEXT PRIMARY KEY,
-			license_id TEXT NOT NULL,
-			hardware_id TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (license_id) REFERENCES licenses(license_id)
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_license_id ON activations(license_id);
-		CREATE INDEX IF NOT EXISTS idx_hardware_id ON activations(hardware_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_license ON daily_usage(license_id);
-		CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
-		CREATE INDEX IF NOT EXISTS idx_proxy_keys_license ON proxy_keys(license_id, hardware_id);
-		`
+		// PostgreSQL connection pool configuration
+		db.SetMaxOpenConns(25)                  // Maximum number of open connections
+		db.SetMaxIdleConns(5)                   // Maximum number of idle connections
+		db.SetConnMaxLifetime(5 * time.Minute)  // Maximum lifetime of a connection
+		db.SetConnMaxIdleTime(10 * time.Minute) // Maximum idle time before closing
+		log.Printf("📊 PostgreSQL connection pool configured (max_open=25, max_idle=5)")
 	}
 
-	_, err = db.Exec(schema)
+	// Enable WAL mode for SQLite for better concurrency and durability
+	if !isPostgresDB {
+		pragmas := []string{
+			"PRAGMA journal_mode=WAL;",   // Write-Ahead Logging for better concurrency
+			"PRAGMA synchronous=NORMAL;", // Balance between safety and performance
+			"PRAGMA foreign_keys=ON;",    // Enforce foreign key constraints
+			"PRAGMA busy_timeout=5000;",  // Wait up to 5s if database is locked
+			"PRAGMA cache_size=-64000;",  // 64MB cache
+		}
+		for _, pragma := range pragmas {
+			if _, err := db.Exec(pragma); err != nil {
+				log.Printf("⚠️  Failed to set SQLite pragma: %v", err)
+			}
+		}
+		log.Printf("📊 SQLite WAL mode enabled for better concurrency")
+	}
+
+	// Load and execute schema from SQL files
+	var schemaPath string
+	if isPostgresDB {
+		schemaPath = "sql/postgres/init.sql"
+	} else {
+		schemaPath = "sql/sqlite/init.sql"
+	}
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+	}
+
+	_, err = db.Exec(string(schema))
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
@@ -545,7 +573,7 @@ func handleCheck() http.HandlerFunc {
 	}
 }
 
-func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
+func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -564,6 +592,18 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
+		// If email verification is disabled, return dummy success
+		if !requireEmailVerification {
+			resp := InitResponse{
+				Success: true,
+				Message: "Email verification disabled (development mode). Proceed to /verify with any code.",
+				Email:   req.Email,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
 		// Generate 6-digit code
 		code, err := generateVerificationCode()
 		if err != nil {
@@ -576,13 +616,13 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 		expiresAt := time.Now().Add(15 * time.Minute)
 
 		// Delete existing code if any
-		_, _ = db.Exec(`DELETE FROM verification_codes WHERE email = $1`, req.Email)
+		_, _ = db.Exec(fmt.Sprintf(`DELETE FROM verification_codes WHERE email = %s`, sqlPlaceholder(1)), req.Email)
 
 		// Insert new code
-		_, err = db.Exec(`
+		_, err = db.Exec(fmt.Sprintf(`
 			INSERT INTO verification_codes (email, code, created_at, expires_at) 
-			VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
-		`, req.Email, code, expiresAt.Format(time.RFC3339))
+			VALUES (%s, %s, CURRENT_TIMESTAMP, %s)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), req.Email, code, expiresAt.Format(time.RFC3339))
 		if err != nil {
 			log.Printf("Failed to store verification code: %v", err)
 			sendError(w, "Internal server error", http.StatusInternalServerError)
@@ -596,7 +636,7 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Sent verification code to %s", req.Email)
+		log.Printf("Sent verification code to %s", redactEmail(req.Email))
 
 		resp := InitResponse{
 			Success: true,
@@ -608,7 +648,7 @@ func handleInit(resendAPIKey, fromEmail string) http.HandlerFunc {
 	}
 }
 
-func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
+func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -621,42 +661,48 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 			return
 		}
 
-		// Verify code
-		var storedCode string
-		var expiresAtStr string
-		err := db.QueryRow(fmt.Sprintf(`
-			SELECT code, expires_at FROM verification_codes 
-			WHERE email = %s
-		`, sqlPlaceholder(1)), req.Email).Scan(&storedCode, &expiresAtStr)
+		// If email verification is disabled, skip verification
+		var err error
+		if !requireEmailVerification {
+			log.Printf("Bypassing email verification for %s (development mode)", redactEmail(req.Email))
+		} else {
+			// Verify code
+			var storedCode string
+			var expiresAtStr string
+			err = db.QueryRow(fmt.Sprintf(`
+				SELECT code, expires_at FROM verification_codes 
+				WHERE email = %s
+			`, sqlPlaceholder(1)), req.Email).Scan(&storedCode, &expiresAtStr)
 
-		if err == sql.ErrNoRows {
-			sendError(w, "No verification code found for this email", http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			log.Printf("Database error: %v", err)
-			sendError(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+			if err == sql.ErrNoRows {
+				sendError(w, "No verification code found for this email", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				log.Printf("Database error: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 
-		expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
-		if err != nil {
-			log.Printf("Failed to parse expiration time: %v", err)
-			sendError(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+			expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+			if err != nil {
+				log.Printf("Failed to parse expiration time: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 
-		if time.Now().After(expiresAt) {
-			sendError(w, "Verification code expired", http.StatusBadRequest)
-			return
-		}
+			if time.Now().After(expiresAt) {
+				sendError(w, "Verification code expired", http.StatusBadRequest)
+				return
+			}
 
-		log.Printf("Verification attempt: email=%s, provided=%s, stored=%s, match=%v",
-			req.Email, req.Code, storedCode, storedCode == req.Code)
+			log.Printf("Verification attempt: email=%s, match=%v",
+				redactEmail(req.Email), storedCode == req.Code)
 
-		if storedCode != req.Code {
-			sendError(w, "Invalid verification code", http.StatusUnauthorized)
-			return
+			if storedCode != req.Code {
+				sendError(w, "Invalid verification code", http.StatusUnauthorized)
+				return
+			}
 		}
 
 		// Check if user already has a license
@@ -683,12 +729,21 @@ func handleVerify(resendAPIKey, fromEmail string) http.HandlerFunc {
 		licenseKey := generateLicenseKey()
 		expiresAtLicense := time.Now().AddDate(0, 1, 0) // 1 month for free tier
 
+		// Generate encryption salt
+		var encryptionSalt string
+		encryptionSalt, err = generateSalt()
+		if err != nil {
+			log.Printf("Failed to generate salt: %v", err)
+			sendError(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		_, err = db.Exec(fmt.Sprintf(`
 			INSERT INTO licenses (
 license_id, customer_name, customer_email, tier, 
-expires_at, daily_limit, monthly_limit, max_activations, active
-) VALUES (%s, %s, %s, 'free', %s, 10, 10, 3, 1)
-		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)), licenseKey, req.Email, req.Email, expiresAtLicense)
+expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
+) VALUES (%s, %s, %s, 'free', %s, 10, 10, 3, 1, %s)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4), sqlPlaceholder(5)), licenseKey, req.Email, req.Email, expiresAtLicense, encryptionSalt)
 
 		if err != nil {
 			log.Printf("Failed to create license: %v", err)
@@ -705,7 +760,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active
 			// Don't fail - license is already created
 		}
 
-		log.Printf("Created FREE license for %s: %s", req.Email, licenseKey)
+		log.Printf("Created FREE license for %s: %s", redactEmail(req.Email), redactPII(licenseKey))
 
 		resp := VerifyResponse{
 			Success:    true,
@@ -778,7 +833,24 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("Activation request: license=%s, hardware=%s", req.LicenseKey, req.HardwareID[:8]+"...")
+		// Normalize and validate inputs early to avoid panics and wasted work
+		req.HardwareID = strings.TrimSpace(req.HardwareID)
+		if len(req.HardwareID) < 8 {
+			sendError(w, "hardware_id must be at least 8 characters", http.StatusBadRequest)
+			return
+		}
+
+		req.LicenseKey = strings.TrimSpace(req.LicenseKey)
+		if req.LicenseKey == "" {
+			sendError(w, "License key is required", http.StatusBadRequest)
+			return
+		}
+
+		hwPrefix := req.HardwareID
+		if len(req.HardwareID) > 8 {
+			hwPrefix = req.HardwareID[:8] + "..."
+		}
+		log.Printf("Activation request: license=%s, hardware=%s", redactPII(req.LicenseKey), hwPrefix)
 
 		// Validate license key exists
 		license, err := getLicense(req.LicenseKey)
@@ -790,7 +862,11 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 
 		// For FREE tier: Check if this hardware already has an active free license
 		if license.Tier == "free" && isFreeHardwareAlreadyActive(req.HardwareID, req.LicenseKey) {
-			log.Printf("Hardware %s already has an active free license, blocking new free license %s", req.HardwareID[:8]+"...", req.LicenseKey)
+			hwPrefix := req.HardwareID
+			if len(req.HardwareID) > 8 {
+				hwPrefix = req.HardwareID[:8] + "..."
+			}
+			log.Printf("Hardware %s already has an active free license, blocking new free license %s", hwPrefix, redactPII(req.LicenseKey))
 			sendError(w, "This device already has an active FREE license. Each device is limited to one free license.", http.StatusForbidden)
 			return
 		}
@@ -835,9 +911,9 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				sendError(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			log.Printf("New activation recorded for license %s", req.LicenseKey)
+			log.Printf("New activation recorded for license %s", redactPII(req.LicenseKey))
 		} else {
-			log.Printf("Re-activation on existing hardware for license %s", req.LicenseKey)
+			log.Printf("Re-activation on existing hardware for license %s", redactPII(req.LicenseKey))
 		}
 
 		// Record check-in
@@ -885,7 +961,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 					MaxActivations: license.Limits.MaxActivations,
 				},
 			}
-			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", req.LicenseKey, proxyKey[:10])
+			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
 		} else {
 			// Normal mode: encrypt the protected API key
 			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
@@ -912,7 +988,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 					MaxActivations: license.Limits.MaxActivations,
 				},
 			}
-			log.Printf("✅ Activation successful for %s", req.LicenseKey)
+			log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -978,9 +1054,11 @@ func getLicense(licenseID string) (*LicenseData, error) {
 	var license LicenseData
 	license.LicenseID = licenseID
 
+	var encryptionSalt sql.NullString
+
 	err := db.QueryRow(fmt.Sprintf(`
 SELECT customer_name, customer_email, tier, expires_at, 
-       daily_limit, monthly_limit, max_activations, active
+       daily_limit, monthly_limit, max_activations, active, encryption_salt
 FROM licenses WHERE license_id = %s
 `, sqlPlaceholder(1)), licenseID).Scan(
 		&license.CustomerName,
@@ -991,10 +1069,27 @@ FROM licenses WHERE license_id = %s
 		&license.Limits.MonthlyLimit,
 		&license.Limits.MaxActivations,
 		&license.Active,
+		&encryptionSalt,
 	)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("license not found")
+	}
+
+	// If no salt exists (legacy license), generate and store one
+	if !encryptionSalt.Valid || encryptionSalt.String == "" {
+		salt, err := generateSalt()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate salt: %w", err)
+		}
+		_, err = db.Exec(fmt.Sprintf("UPDATE licenses SET encryption_salt = %s WHERE license_id = %s",
+			sqlPlaceholder(1), sqlPlaceholder(2)), salt, licenseID)
+		if err != nil {
+			log.Printf("Warning: Failed to store salt for license %s: %v", redactPII(licenseID), err)
+		}
+		license.EncryptionSalt = salt
+	} else {
+		license.EncryptionSalt = encryptionSalt.String
 	}
 
 	return &license, err
@@ -1096,8 +1191,8 @@ func encryptAPIKeyBundle(protectedAPIKey string, license *LicenseData, licenseKe
 		return "", "", err
 	}
 
-	// Derive key from license + hardware ID (same as client)
-	key := deriveKey(licenseKey, hwID)
+	// Derive key from license + hardware ID + salt using Argon2
+	key := deriveKey(licenseKey, hwID, license.EncryptionSalt)
 
 	// Create cipher
 	block, err := aes.NewCipher(key)
@@ -1127,11 +1222,35 @@ func encryptAPIKeyBundle(protectedAPIKey string, license *LicenseData, licenseKe
 	return encrypted, iv, nil
 }
 
-func deriveKey(licenseKey, hardwareID string) []byte {
-	h := sha256.New()
-	h.Write([]byte(licenseKey))
-	h.Write([]byte(hardwareID))
-	return h.Sum(nil)
+// deriveKey uses Argon2id to derive encryption key from license, hardware ID, and salt
+func deriveKey(licenseKey, hardwareID, salt string) []byte {
+	// Argon2id parameters (recommended for password hashing and key derivation)
+	const (
+		time    = 3         // Number of iterations
+		memory  = 64 * 1024 // Memory cost in KiB (64 MB)
+		threads = 4         // Parallelism
+		keyLen  = 32        // Output key length (AES-256)
+	)
+
+	// Combine license key and hardware ID as the "password"
+	password := []byte(licenseKey + ":" + hardwareID)
+	saltBytes, _ := hex.DecodeString(salt)
+
+	// If salt decode fails (legacy), use salt as-is
+	if len(saltBytes) == 0 {
+		saltBytes = []byte(salt)
+	}
+
+	return argon2.IDKey(password, saltBytes, time, memory, threads, keyLen)
+}
+
+// generateSalt creates a cryptographically secure random salt
+func generateSalt() (string, error) {
+	salt := make([]byte, 32) // 256-bit salt
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(salt), nil
 }
 
 func sendError(w http.ResponseWriter, message string, code int) {
@@ -1257,7 +1376,7 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("resend API error: %s", body)
 	}
@@ -1267,9 +1386,40 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 
 // ProxyRequest handles proxying to external APIs
 type ProxyRequest struct {
-	ProxyKey string          `json:"proxy_key"` // Generated proxy key from activation
-	Provider string          `json:"provider"`  // "openai" or "anthropic"
-	Body     json.RawMessage `json:"body"`      // Original API request body
+	ProxyKey  string          `json:"proxy_key"` // Generated proxy key from activation
+	Provider  string          `json:"provider"`  // "openai" or "anthropic"
+	Body      json.RawMessage `json:"body"`      // Original API request body
+	Signature string          `json:"signature"` // HMAC-SHA256 signature for request authentication
+	Timestamp int64           `json:"timestamp"` // Unix timestamp to prevent replay attacks
+}
+
+// validateProxySignature validates the HMAC-SHA256 signature on a proxy request
+// Signature is computed as: HMAC-SHA256(proxy_key, timestamp + provider + body)
+func validateProxySignature(proxyKey, provider string, body []byte, timestamp int64, signature string) bool {
+	// Check timestamp (must be within 5 minutes)
+	now := time.Now().Unix()
+	if abs(now-timestamp) > 300 { // 5 minutes
+		return false
+	}
+
+	// Construct message: timestamp + provider + body
+	message := fmt.Sprintf("%d%s%s", timestamp, provider, string(body))
+
+	// Compute HMAC-SHA256
+	h := hmac.New(sha256.New, []byte(proxyKey))
+	h.Write([]byte(message))
+	expectedSignature := hex.EncodeToString(h.Sum(nil))
+
+	// Constant-time comparison to prevent timing attacks
+	return hmac.Equal([]byte(expectedSignature), []byte(signature))
+}
+
+// abs returns absolute value of an int64
+func abs(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // handleProxy forwards requests to external APIs while validating license and rate limits
@@ -1292,6 +1442,13 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 			return
 		}
 
+		// Validate HMAC signature
+		if !validateProxySignature(req.ProxyKey, req.Provider, req.Body, req.Timestamp, req.Signature) {
+			log.Printf("Invalid proxy signature for key: %s...", redactPII(req.ProxyKey[:10]))
+			sendError(w, "Invalid signature or expired timestamp", http.StatusUnauthorized)
+			return
+		}
+
 		// Validate proxy key and get license info
 		licenseKey, hardwareID, err := validateProxyKey(req.ProxyKey)
 		if err != nil {
@@ -1307,16 +1464,16 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 
 		// Check if license exists and is active
 		var licenseID, tier, expiresAtStr string
-		var dailyLimit int64
+		var dailyLimit, monthlyLimit int64
 
 		if isPostgresDB {
 			// PostgreSQL: use EXTRACT(EPOCH FROM expires_at)
 			var expiresAtUnix int64
 			err := db.QueryRow(fmt.Sprintf(`
-				SELECT license_id, tier, daily_limit, EXTRACT(EPOCH FROM expires_at)::bigint
+				SELECT license_id, tier, daily_limit, monthly_limit, EXTRACT(EPOCH FROM expires_at)::bigint
 				FROM licenses 
 				WHERE license_id = %s AND active = true
-			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtUnix)
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &monthlyLimit, &expiresAtUnix)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1331,10 +1488,10 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		} else {
 			// SQLite: expires_at is stored as TEXT in RFC3339 format
 			err := db.QueryRow(fmt.Sprintf(`
-				SELECT license_id, tier, daily_limit, expires_at
+				SELECT license_id, tier, daily_limit, monthly_limit, expires_at
 				FROM licenses 
 				WHERE license_id = %s AND active = true
-			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &expiresAtStr)
+			`, sqlPlaceholder(1)), licenseKey).Scan(&licenseID, &tier, &dailyLimit, &monthlyLimit, &expiresAtStr)
 
 			if err == sql.ErrNoRows {
 				sendError(w, "License not found or inactive", http.StatusUnauthorized)
@@ -1402,6 +1559,35 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 				},
 			})
 			return
+		}
+
+		// Check monthly limit (if not unlimited -1)
+		if monthlyLimit > 0 {
+			thisMonth := time.Now().Format("2006-01")
+			var monthlyUsage int
+			err = db.QueryRow(fmt.Sprintf(`
+				SELECT COALESCE(SUM(scans), 0) FROM daily_usage
+				WHERE license_id = %s AND hardware_id = %s AND date LIKE %s
+			`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, hardwareID, thisMonth+"%").Scan(&monthlyUsage)
+
+			if err != nil {
+				log.Printf("Database error checking monthly usage: %v", err)
+				sendError(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			if monthlyUsage >= int(monthlyLimit) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": fmt.Sprintf("Monthly limit of %d requests exceeded. Current usage: %d", monthlyLimit, monthlyUsage),
+						"type":    "rate_limit_exceeded",
+						"code":    "monthly_limit_exceeded",
+					},
+				})
+				return
+			}
 		}
 
 		// Determine API endpoint and key
@@ -1486,19 +1672,18 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
-		// Increment usage counter (only on successful requests)
-		if resp.StatusCode == http.StatusOK {
-			_, err = db.Exec(fmt.Sprintf(`
-				INSERT INTO daily_usage (license_id, date, scans, hardware_id)
-				VALUES (%s, %s, 1, %s)
-				ON CONFLICT (license_id, date)
-				DO UPDATE SET scans = daily_usage.scans + 1
-			`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID)
+		// Increment usage counter for all responses (prevents retry abuse)
+		// Count all API calls regardless of status code since they consume provider quota
+		_, err = db.Exec(fmt.Sprintf(`
+			INSERT INTO daily_usage (license_id, date, scans, hardware_id)
+			VALUES (%s, %s, 1, %s)
+			ON CONFLICT (license_id, date)
+			DO UPDATE SET scans = daily_usage.scans + 1
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3)), licenseID, today, hardwareID)
 
-			if err != nil {
-				log.Printf("Failed to update usage: %v", err)
-				// Don't fail the request, just log the error
-			}
+		if err != nil {
+			log.Printf("Failed to update usage: %v", err)
+			// Don't fail the request, just log the error
 		}
 
 		// Copy response headers
@@ -1517,7 +1702,7 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 
-		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, licenseID, currentUsage+1, dailyLimit)
+		log.Printf("Proxied %s request for license %s (usage: %d/%d)", req.Provider, redactPII(licenseID), currentUsage+1, dailyLimit)
 	}
 }
 
@@ -1545,6 +1730,11 @@ func main() {
 	// Load configuration
 	config := loadConfig()
 
+	// Validate configuration before proceeding
+	if err := validateConfig(config); err != nil {
+		log.Fatalf("❌ Configuration error:\n%v\n\nPlease check your environment variables and try again.", err)
+	}
+
 	// Load tier configuration
 	if err := tiers.LoadWithFallback(config.TiersConfigPath); err != nil {
 		log.Fatalf("Failed to load tier configuration: %v", err)
@@ -1557,18 +1747,23 @@ func main() {
 	}
 	defer db.Close()
 
-	// Load private key
+	// Load private key (already validated in validateConfig)
 	privKeyBytes, err := base64.StdEncoding.DecodeString(config.PrivateKeyB64)
 	if err != nil {
 		log.Fatalf("Failed to decode private key: %v", err)
 	}
 	privateKey = ed25519.PrivateKey(privKeyBytes)
 
+	// Start background cleanup for rate limiters
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cleanupIPLimiters(ctx)
+
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
 	http.HandleFunc("/tiers", handleTiers)
-	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail)))
-	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail)))
+	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
+	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
 	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
 	http.HandleFunc("/check", rateLimitMiddleware(handleCheck()))
 	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))
@@ -1640,12 +1835,12 @@ func main() {
 
 	// Graceful shutdown
 	log.Printf("🔄 Shutting down server gracefully (timeout: %v)...", config.ShutdownTimeout)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-	defer cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+	defer shutdownCancel()
 
 	// Attempt graceful shutdown
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("❌ Server forced to shutdown: %v", err)
 		return
 	}

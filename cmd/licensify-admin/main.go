@@ -370,8 +370,13 @@ func handleFix() {
 
 	if *months != 0 {
 		if *months > 0 {
-			// Extend by N months
-			updates = append(updates, fmt.Sprintf("expires_at = expires_at + INTERVAL '%d months'", *months))
+			// Extend by N months - use cross-DB compatible approach
+			if isPostgresDB {
+				updates = append(updates, fmt.Sprintf("expires_at = expires_at + INTERVAL '%d months'", *months))
+			} else {
+				// SQLite: use datetime function
+				updates = append(updates, fmt.Sprintf("expires_at = datetime(expires_at, '+%d months')", *months))
+			}
 		} else {
 			// Lifetime
 			updates = append(updates, fmt.Sprintf("expires_at = %s", sqlPlaceholder(argNum)))
@@ -585,7 +590,34 @@ func initDB() error {
 		return fmt.Errorf("failed to open database: %v", err)
 	}
 
-	return db.Ping()
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %v", err)
+	}
+
+	// Initialize schema if tables don't exist
+	if err := initSchema(); err != nil {
+		return fmt.Errorf("failed to initialize schema: %v", err)
+	}
+
+	return nil
+}
+
+func initSchema() error {
+	// Load and execute schema from SQL files
+	var schemaPath string
+	if isPostgresDB {
+		schemaPath = "sql/postgres/init.sql"
+	} else {
+		schemaPath = "sql/sqlite/init.sql"
+	}
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
+	}
+
+	_, err = db.Exec(string(schema))
+	return err
 }
 
 func sqlPlaceholder(n int) string {
