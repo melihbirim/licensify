@@ -8,3 +8,8 @@ linters:
   enable:
     - govet
     - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
