@@ -12,7 +12,6 @@ services:
       - SHUTDOWN_TIMEOUT=30s
       
       # Database (SQLite by default - change to PostgreSQL for production)
-      - DB_TYPE=sqlite
       - DB_PATH=/data/licensify.db
       # For PostgreSQL, uncomment:
       # - DATABASE_URL=postgresql://licensify:password@postgres:5432/licensify?sslmode=disable

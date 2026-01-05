@@ -58,3 +58,6 @@ CREATE TABLE IF NOT EXISTS webhook_logs (
 	error TEXT,
 	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS webhook_logs_created_at_idx ON webhook_logs (created_at);

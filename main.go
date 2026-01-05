@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -1024,14 +1025,16 @@ func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) ht
 			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
 
 			// Send webhook for activation event
-			sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
-				"license_key":    req.LicenseKey,
-				"hardware_id":    req.HardwareID,
-				"customer_email": license.CustomerEmail,
-				"customer_name":  license.CustomerName,
-				"tier":           license.Tier,
-				"mode":           "proxy",
-			})
+			if config.WebhookURL != "" {
+				sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+					"license_key":    req.LicenseKey,
+					"hardware_id":    req.HardwareID,
+					"customer_email": license.CustomerEmail,
+					"customer_name":  license.CustomerName,
+					"tier":           license.Tier,
+					"mode":           "proxy",
+				})
+			}
 		} else {
 			// Normal mode: encrypt the protected API key
 			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
@@ -1893,7 +1896,7 @@ func basicAuthMiddleware(username, password string, next http.HandlerFunc) http.
 
 		// Check Basic Auth header
 		user, pass, ok := r.BasicAuth()
-		if !ok || user != username || pass != password {
+		if !ok || user != username || subtle.ConstantTimeCompare([]byte(pass), []byte(password)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Licensify Admin"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			log.Printf("⚠️  Failed admin login attempt from %s", r.RemoteAddr)
@@ -2356,7 +2359,7 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
-	http.HandleFunc("/admin", basicAuthMiddleware(config.AdminUsername, config.AdminPassword, handleAdmin()))
+	http.HandleFunc("/admin", rateLimitMiddleware(basicAuthMiddleware(config.AdminUsername, config.AdminPassword, handleAdmin())))
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
 	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification, config)))
