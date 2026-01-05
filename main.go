@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -13,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	htmlpkg "html"
 	"io"
 	"log"
 	"math/big"
@@ -24,6 +26,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -84,6 +87,29 @@ func redactEmail(email string) string {
 		return "***@" + domain
 	}
 	return username[:min(2, len(username))] + "***@" + domain
+}
+
+// truncateStringUTF8 safely truncates a string to maxLen bytes while preserving UTF-8 character boundaries
+func truncateStringUTF8(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	// Ensure we don't cut in the middle of a UTF-8 character
+	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
+		maxLen--
+	}
+	return s[:maxLen] + "..."
+}
+
+// safeSubstring safely extracts a substring with length validation
+func safeSubstring(s string, start, end int) string {
+	if len(s) < end {
+		return s
+	}
+	if len(s) < start {
+		return ""
+	}
+	return s[start:end]
 }
 
 func min(a, b int) int {
@@ -785,7 +811,7 @@ expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
 
 		// Send webhook for license.created event
 		if config.WebhookURL != "" {
-			go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.created", map[string]interface{}{
+			sendWebhook(config.WebhookURL, config.WebhookSecret, "license.created", map[string]interface{}{
 				"license_key":     licenseKey,
 				"customer_email":  req.Email,
 				"tier":            "free",
@@ -1036,7 +1062,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) ht
 
 			// Send webhook for activation event
 			if config.WebhookURL != "" {
-				go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+				sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
 					"license_key":    req.LicenseKey,
 					"hardware_id":    req.HardwareID,
 					"customer_email": license.CustomerEmail,
@@ -1478,7 +1504,7 @@ func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interf
 	}
 
 	// Create request
-	req, err := http.NewRequest("POST", webhookURL, strings.NewReader(string(jsonData)))
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewReader(jsonData))
 	if err != nil {
 		log.Printf("Failed to create webhook request: %v", err)
 		return
@@ -1520,11 +1546,14 @@ func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interf
 		}
 
 		// Log to database
-		_, _ = db.Exec(fmt.Sprintf(`
-			INSERT INTO webhook_logs (event, payload, status_code, error)
-			VALUES (%s, %s, %s, %s)
-		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)),
+		_, err = db.Exec(fmt.Sprintf(`
+		INSERT INTO webhook_logs (event, payload, status_code, error)
+		VALUES (%s, %s, %s, %s)
+	`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)),
 			event, string(jsonData), statusCode, errorMsg)
+		if err != nil {
+			log.Printf("Failed to log webhook to database: %v", err)
+		}
 	}()
 }
 
@@ -1915,10 +1944,16 @@ func handleAdmin() http.HandlerFunc {
 			var active int
 			if isPostgresDB {
 				var activeBool bool
-				_ = licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &activeBool, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt)
+				if err := licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &activeBool, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt); err != nil {
+					log.Printf("Error scanning license row: %v", err)
+					continue
+				}
 				l.Active = activeBool
 			} else {
-				_ = licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &active, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt)
+				if err := licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &active, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt); err != nil {
+					log.Printf("Error scanning license row: %v", err)
+					continue
+				}
 				l.Active = active == 1
 			}
 			licenseList = append(licenseList, l)
@@ -1952,7 +1987,10 @@ func handleAdmin() http.HandlerFunc {
 		var activationList []Activation
 		for activations.Next() {
 			var a Activation
-			_ = activations.Scan(&a.LicenseID, &a.HardwareID, &a.ActivatedAt, &a.Email, &a.Tier)
+			if err := activations.Scan(&a.LicenseID, &a.HardwareID, &a.ActivatedAt, &a.Email, &a.Tier); err != nil {
+				log.Printf("Error scanning activation row: %v", err)
+				continue
+			}
 			activationList = append(activationList, a)
 		}
 
@@ -1985,7 +2023,10 @@ func handleAdmin() http.HandlerFunc {
 			var wl WebhookLog
 			var statusCode sql.NullInt64
 			var errorMsg sql.NullString
-			_ = webhookLogs.Scan(&wl.Event, &wl.Payload, &statusCode, &errorMsg, &wl.CreatedAt)
+			if err := webhookLogs.Scan(&wl.Event, &wl.Payload, &statusCode, &errorMsg, &wl.CreatedAt); err != nil {
+				log.Printf("Error scanning webhook log row: %v", err)
+				continue
+			}
 			if statusCode.Valid {
 				wl.StatusCode = int(statusCode.Int64)
 			}
@@ -2124,7 +2165,7 @@ func handleAdmin() http.HandlerFunc {
 			if !l.Active {
 				statusBadge = `<span class="badge badge-inactive">Inactive</span>`
 			}
-			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, l.Tier, strings.ToUpper(l.Tier))
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, htmlpkg.EscapeString(l.Tier), htmlpkg.EscapeString(strings.ToUpper(l.Tier)))
 
 			html += fmt.Sprintf(`
 					<tr>
@@ -2136,15 +2177,15 @@ func handleAdmin() http.HandlerFunc {
 						<td class="timestamp">%s</td>
 						<td class="timestamp">%s</td>
 					</tr>`,
-				l.ID[:20]+"...",
-				l.Email,
+				htmlpkg.EscapeString(truncateStringUTF8(l.ID, 20)+"..."),
+				htmlpkg.EscapeString(l.Email),
 				tierBadge,
 				l.DailyLimit,
 				l.MonthlyLimit,
 				l.MaxDevices,
 				statusBadge,
-				l.ExpiresAt[:10],
-				l.CreatedAt[:19],
+				htmlpkg.EscapeString(safeSubstring(l.ExpiresAt, 0, 10)),
+				htmlpkg.EscapeString(safeSubstring(l.CreatedAt, 0, 19)),
 			)
 		}
 
@@ -2168,7 +2209,7 @@ func handleAdmin() http.HandlerFunc {
 				<tbody>`
 
 		for _, a := range activationList {
-			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, a.Tier, strings.ToUpper(a.Tier))
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, htmlpkg.EscapeString(a.Tier), htmlpkg.EscapeString(strings.ToUpper(a.Tier)))
 			html += fmt.Sprintf(`
 					<tr>
 						<td><code class="mono">%s</code></td>
@@ -2177,11 +2218,11 @@ func handleAdmin() http.HandlerFunc {
 						<td>%s</td>
 						<td class="timestamp">%s</td>
 					</tr>`,
-				a.LicenseID[:20]+"...",
-				a.HardwareID,
-				a.Email,
+				htmlpkg.EscapeString(truncateStringUTF8(a.LicenseID, 20)+"..."),
+				htmlpkg.EscapeString(a.HardwareID),
+				htmlpkg.EscapeString(a.Email),
 				tierBadge,
-				a.ActivatedAt[:19],
+				htmlpkg.EscapeString(safeSubstring(a.ActivatedAt, 0, 19)),
 			)
 		}
 
@@ -2221,7 +2262,7 @@ func handleAdmin() http.HandlerFunc {
 
 			errorText := "-"
 			if wl.Error != "" {
-				errorText = `<span style="color: #dc3545;">` + wl.Error[:min(50, len(wl.Error))] + `...</span>`
+				errorText = `<span style="color: #dc3545;">` + htmlpkg.EscapeString(truncateStringUTF8(wl.Error, 50)+"...") + `</span>`
 			}
 
 			html += fmt.Sprintf(`
@@ -2232,12 +2273,12 @@ func handleAdmin() http.HandlerFunc {
 						<td>%s</td>
 						<td class="timestamp">%s</td>
 					</tr>`,
-				wl.Event,
+				htmlpkg.EscapeString(wl.Event),
 				statusBadge,
-				wl.Payload,
-				wl.Payload[:min(60, len(wl.Payload))]+"...",
+				htmlpkg.EscapeString(wl.Payload),
+				htmlpkg.EscapeString(truncateStringUTF8(wl.Payload, 60)+"..."),
 				errorText,
-				wl.CreatedAt[:19],
+				htmlpkg.EscapeString(safeSubstring(wl.CreatedAt, 0, 19)),
 			)
 		}
 
