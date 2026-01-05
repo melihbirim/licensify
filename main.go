@@ -1892,7 +1892,11 @@ func handleAdmin() http.HandlerFunc {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
-		defer licenses.Close()
+		defer func() {
+			if err := licenses.Close(); err != nil {
+				log.Printf("Error closing licenses query: %v", err)
+			}
+		}()
 
 		type License struct {
 			ID           string
@@ -1932,7 +1936,11 @@ func handleAdmin() http.HandlerFunc {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
-		defer activations.Close()
+		defer func() {
+			if err := activations.Close(); err != nil {
+				log.Printf("Error closing activations query: %v", err)
+			}
+		}()
 
 		type Activation struct {
 			LicenseID   string
@@ -1959,7 +1967,11 @@ func handleAdmin() http.HandlerFunc {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
-		defer webhookLogs.Close()
+		defer func() {
+			if err := webhookLogs.Close(); err != nil {
+				log.Printf("Error closing webhookLogs query: %v", err)
+			}
+		}()
 
 		type WebhookLog struct {
 			Event      string
