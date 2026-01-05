@@ -218,6 +218,12 @@ type ActivationResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+// ErrorResponse for generic errors
+type ErrorResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+}
+
 // InitRequest for free tier onboarding
 type InitRequest struct {
 	Email string `json:"email"`
@@ -1324,7 +1330,7 @@ func generateSalt() (string, error) {
 func sendError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(ActivationResponse{
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
 		Success: false,
 		Error:   message,
 	})
