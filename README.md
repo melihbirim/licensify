@@ -675,6 +675,41 @@ DATABASE_URL=postgresql://user:pass@host:5432/licensify ./licensify
 
 Tables are created automatically on first run.
 
+## Admin Dashboard
+
+Licensify includes a web-based admin dashboard at `/admin` for monitoring licenses, activations, and webhook events.
+
+**Access:**
+```bash
+# Visit in browser
+http://localhost:8080/admin
+
+# Login with credentials from .env
+Username: admin
+Password: your-secure-password
+```
+
+**Features:**
+- 📊 **Stats Overview**: Total licenses, active devices, webhook events
+- 📜 **License Management**: View all licenses with status, limits, and expiry
+- 💻 **Device Tracking**: See which devices have activated licenses
+- 🔔 **Webhook Logs**: Monitor webhook delivery status and payloads
+
+**Security:**
+```bash
+# Set credentials in .env (REQUIRED for production)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-secure-password
+
+# Without credentials, dashboard shows security warning
+# Development mode: Anyone can access /admin
+```
+
+**Important:** The admin dashboard uses HTTP Basic Authentication. For production deployments, ensure:
+- Strong password set via `ADMIN_PASSWORD`
+- HTTPS enabled (required for secure basic auth)
+- Consider adding IP whitelisting via reverse proxy
+
 ## Database Management
 
 **SQLite:**

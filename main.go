@@ -358,6 +358,13 @@ func validateConfig(config *Config) error {
 		errors = append(errors, "Either DATABASE_URL (PostgreSQL) or DB_PATH (SQLite) must be set")
 	}
 
+	// Admin dashboard security (warning only)
+	if config.AdminUsername == "" || config.AdminPassword == "" {
+		log.Printf("⚠️  WARNING: Admin dashboard authentication not configured")
+		log.Printf("   Set ADMIN_USERNAME and ADMIN_PASSWORD to secure the /admin endpoint")
+		log.Printf("   Currently running in INSECURE mode - anyone can access /admin")
+	}
+
 	if len(errors) > 0 {
 		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errors, "\n  - "))
 	}
