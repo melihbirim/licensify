@@ -979,7 +979,7 @@ func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) ht
 				},
 			}
 			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
-			
+
 			// Send webhook for activation event
 			sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
 				"license_key":    req.LicenseKey,
@@ -1006,32 +1006,32 @@ func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) ht
 				EncryptedAPIKey: encryptedData,
 				IV:              iv,
 				Limits: struct {
-				DailyLimit     int `json:"daily_limit"`
-				MonthlyLimit   int `json:"monthly_limit"`
-				MaxActivations int `json:"max_activations"`
-			}{
-				DailyLimit:     license.Limits.DailyLimit,
-				MonthlyLimit:   license.Limits.MonthlyLimit,
-				MaxActivations: license.Limits.MaxActivations,
-			},
-		}
-		log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
+					DailyLimit     int `json:"daily_limit"`
+					MonthlyLimit   int `json:"monthly_limit"`
+					MaxActivations int `json:"max_activations"`
+				}{
+					DailyLimit:     license.Limits.DailyLimit,
+					MonthlyLimit:   license.Limits.MonthlyLimit,
+					MaxActivations: license.Limits.MaxActivations,
+				},
+			}
+			log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
 
-		// Send webhook for activation event
-		if config.WebhookURL != "" {
-			go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
-				"license_key":    req.LicenseKey,
-				"hardware_id":    req.HardwareID,
-				"customer_email": license.CustomerEmail,
-				"customer_name":  license.CustomerName,
-				"tier":           license.Tier,
-				"mode":           "direct",
-			})
+			// Send webhook for activation event
+			if config.WebhookURL != "" {
+				go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+					"license_key":    req.LicenseKey,
+					"hardware_id":    req.HardwareID,
+					"customer_email": license.CustomerEmail,
+					"customer_name":  license.CustomerName,
+					"tier":           license.Tier,
+					"mode":           "direct",
+				})
+			}
 		}
-	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -1094,6 +1094,7 @@ func getLicense(licenseID string) (*LicenseData, error) {
 	license.LicenseID = licenseID
 
 	var encryptionSalt sql.NullString
+	var expiresAtStr string
 
 	err := db.QueryRow(fmt.Sprintf(`
 SELECT customer_name, customer_email, tier, expires_at, 
@@ -1103,7 +1104,7 @@ FROM licenses WHERE license_id = %s
 		&license.CustomerName,
 		&license.CustomerEmail,
 		&license.Tier,
-		&license.ExpiresAt,
+		&expiresAtStr,
 		&license.Limits.DailyLimit,
 		&license.Limits.MonthlyLimit,
 		&license.Limits.MaxActivations,
@@ -1113,6 +1114,23 @@ FROM licenses WHERE license_id = %s
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("license not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Parse expires_at (handle both SQLite TEXT and PostgreSQL TIMESTAMP)
+	license.ExpiresAt, err = time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		// Try alternate formats for SQLite
+		license.ExpiresAt, err = time.Parse("2006-01-02 15:04:05", expiresAtStr)
+		if err != nil {
+			// Try SQLite default format with timezone
+			license.ExpiresAt, err = time.Parse("2006-01-02 15:04:05.999999 -0700 MST", expiresAtStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse expires_at: %w", err)
+			}
+		}
 	}
 
 	// If no salt exists (legacy license), generate and store one
@@ -1464,18 +1482,32 @@ func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interf
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
+		
+		var statusCode int
+		var errorMsg string
+		
 		if err != nil {
 			log.Printf("Webhook delivery failed (%s): %v", event, err)
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			log.Printf("Webhook returned error (%s): %d - %s", event, resp.StatusCode, body)
+			errorMsg = err.Error()
 		} else {
-			log.Printf("Webhook delivered successfully: %s", event)
+			defer func() { _ = resp.Body.Close() }()
+			statusCode = resp.StatusCode
+			
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				body, _ := io.ReadAll(resp.Body)
+				errorMsg = string(body)
+				log.Printf("Webhook returned error (%s): %d - %s", event, resp.StatusCode, body)
+			} else {
+				log.Printf("Webhook delivered successfully: %s", event)
+			}
 		}
+		
+		// Log to database
+		_, _ = db.Exec(fmt.Sprintf(`
+			INSERT INTO webhook_logs (event, payload, status_code, error)
+			VALUES (%s, %s, %s, %s)
+		`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)),
+			event, string(jsonData), statusCode, errorMsg)
 	}()
 }
 
@@ -1801,6 +1833,379 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 	}
 }
 
+// handleAdmin serves a simple admin dashboard
+func handleAdmin() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get licenses
+		licenses, err := db.Query(`
+			SELECT license_id, customer_email, tier, expires_at, active, daily_limit, monthly_limit, max_activations, created_at
+			FROM licenses 
+			ORDER BY created_at DESC 
+			LIMIT 100
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer licenses.Close()
+
+		type License struct {
+			ID           string
+			Email        string
+			Tier         string
+			ExpiresAt    string
+			Active       bool
+			DailyLimit   int
+			MonthlyLimit int
+			MaxDevices   int
+			CreatedAt    string
+		}
+		var licenseList []License
+		for licenses.Next() {
+			var l License
+			var active int
+			if isPostgresDB {
+				var activeBool bool
+				_ = licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &activeBool, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt)
+				l.Active = activeBool
+			} else {
+				_ = licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &active, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt)
+				l.Active = active == 1
+			}
+			licenseList = append(licenseList, l)
+		}
+
+		// Get activations
+		activations, err := db.Query(`
+			SELECT a.license_id, a.hardware_id, a.activated_at, l.customer_email, l.tier
+			FROM activations a
+			JOIN licenses l ON a.license_id = l.license_id
+			ORDER BY a.activated_at DESC
+			LIMIT 100
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer activations.Close()
+
+		type Activation struct {
+			LicenseID   string
+			HardwareID  string
+			ActivatedAt string
+			Email       string
+			Tier        string
+		}
+		var activationList []Activation
+		for activations.Next() {
+			var a Activation
+			_ = activations.Scan(&a.LicenseID, &a.HardwareID, &a.ActivatedAt, &a.Email, &a.Tier)
+			activationList = append(activationList, a)
+		}
+
+		// Get webhook logs
+		webhookLogs, err := db.Query(`
+			SELECT event, payload, status_code, error, created_at
+			FROM webhook_logs
+			ORDER BY created_at DESC
+			LIMIT 50
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer webhookLogs.Close()
+
+		type WebhookLog struct {
+			Event      string
+			Payload    string
+			StatusCode int
+			Error      string
+			CreatedAt  string
+		}
+		var webhookList []WebhookLog
+		for webhookLogs.Next() {
+			var wl WebhookLog
+			var statusCode sql.NullInt64
+			var errorMsg sql.NullString
+			_ = webhookLogs.Scan(&wl.Event, &wl.Payload, &statusCode, &errorMsg, &wl.CreatedAt)
+			if statusCode.Valid {
+				wl.StatusCode = int(statusCode.Int64)
+			}
+			if errorMsg.Valid {
+				wl.Error = errorMsg.String
+			}
+			webhookList = append(webhookList, wl)
+		}
+
+		// Render HTML
+		html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Licensify Admin Dashboard</title>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body { 
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: #f5f5f5;
+			padding: 20px;
+		}
+		.container { max-width: 1400px; margin: 0 auto; }
+		h1 { color: #333; margin-bottom: 30px; }
+		.stats {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 20px;
+			margin-bottom: 30px;
+		}
+		.stat-card {
+			background: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		}
+		.stat-number { font-size: 36px; font-weight: bold; color: #4a90e2; }
+		.stat-label { color: #666; margin-top: 5px; }
+		.section {
+			background: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+			margin-bottom: 30px;
+		}
+		h2 {
+			color: #333;
+			margin-bottom: 15px;
+			padding-bottom: 10px;
+			border-bottom: 2px solid #4a90e2;
+		}
+		table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+		th {
+			background: #f8f9fa;
+			padding: 12px;
+			text-align: left;
+			font-weight: 600;
+			color: #333;
+			border-bottom: 2px solid #dee2e6;
+		}
+		td {
+			padding: 12px;
+			border-bottom: 1px solid #dee2e6;
+		}
+		tr:hover { background: #f8f9fa; }
+		.badge {
+			display: inline-block;
+			padding: 4px 8px;
+			border-radius: 4px;
+			font-size: 12px;
+			font-weight: 600;
+		}
+		.badge-active { background: #d4edda; color: #155724; }
+		.badge-inactive { background: #f8d7da; color: #721c24; }
+		.badge-success { background: #d4edda; color: #155724; }
+		.badge-error { background: #f8d7da; color: #721c24; }
+		.badge-free { background: #e7f3ff; color: #004085; }
+		.badge-pro { background: #fff3cd; color: #856404; }
+		.mono { font-family: monospace; font-size: 13px; }
+		.truncate {
+			max-width: 300px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		code {
+			background: #f4f4f4;
+			padding: 2px 6px;
+			border-radius: 3px;
+			font-size: 12px;
+		}
+		.timestamp { color: #666; font-size: 13px; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>🚀 Licensify Admin Dashboard</h1>
+		
+		<div class="stats">
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(licenseList)) + `</div>
+				<div class="stat-label">Total Licenses</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(activationList)) + `</div>
+				<div class="stat-label">Active Devices</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(webhookList)) + `</div>
+				<div class="stat-label">Webhook Events</div>
+			</div>
+		</div>
+
+		<div class="section">
+			<h2>📜 Recent Licenses</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>License Key</th>
+						<th>Email</th>
+						<th>Tier</th>
+						<th>Limits</th>
+						<th>Status</th>
+						<th>Expires</th>
+						<th>Created</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		for _, l := range licenseList {
+			statusBadge := `<span class="badge badge-active">Active</span>`
+			if !l.Active {
+				statusBadge = `<span class="badge badge-inactive">Inactive</span>`
+			}
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, l.Tier, strings.ToUpper(l.Tier))
+			
+			html += fmt.Sprintf(`
+					<tr>
+						<td><code class="mono">%s</code></td>
+						<td>%s</td>
+						<td>%s</td>
+						<td>%d/%d daily, %d devices</td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				l.ID[:20]+"...",
+				l.Email,
+				tierBadge,
+				l.DailyLimit,
+				l.MonthlyLimit,
+				l.MaxDevices,
+				statusBadge,
+				l.ExpiresAt[:10],
+				l.CreatedAt[:19],
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div class="section">
+			<h2>💻 Active Devices</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>License Key</th>
+						<th>Hardware ID</th>
+						<th>Email</th>
+						<th>Tier</th>
+						<th>Activated At</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		for _, a := range activationList {
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, a.Tier, strings.ToUpper(a.Tier))
+			html += fmt.Sprintf(`
+					<tr>
+						<td><code class="mono">%s</code></td>
+						<td class="truncate mono">%s</td>
+						<td>%s</td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				a.LicenseID[:20]+"...",
+				a.HardwareID,
+				a.Email,
+				tierBadge,
+				a.ActivatedAt[:19],
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div class="section">
+			<h2>🔔 Webhook Logs</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>Event</th>
+						<th>Status</th>
+						<th>Payload</th>
+						<th>Error</th>
+						<th>Timestamp</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		if len(webhookList) == 0 {
+			html += `
+					<tr>
+						<td colspan="5" style="text-align: center; color: #999; padding: 30px;">
+							No webhook events yet. Configure WEBHOOK_URL to start receiving events.
+						</td>
+					</tr>`
+		}
+
+		for _, wl := range webhookList {
+			statusBadge := `<span class="badge badge-success">` + fmt.Sprintf("%d", wl.StatusCode) + `</span>`
+			if wl.StatusCode == 0 || wl.StatusCode >= 400 {
+				statusBadge = `<span class="badge badge-error">Failed</span>`
+			}
+			
+			errorText := "-"
+			if wl.Error != "" {
+				errorText = `<span style="color: #dc3545;">` + wl.Error[:min(50, len(wl.Error))] + `...</span>`
+			}
+
+			html += fmt.Sprintf(`
+					<tr>
+						<td><strong>%s</strong></td>
+						<td>%s</td>
+						<td class="truncate" title="%s"><code>%s</code></td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				wl.Event,
+				statusBadge,
+				wl.Payload,
+				wl.Payload[:min(60, len(wl.Payload))]+"...",
+				errorText,
+				wl.CreatedAt[:19],
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div style="text-align: center; color: #999; padding: 20px;">
+			<p>Licensify v` + Version + ` • Built at ` + BuildTime + `</p>
+		</div>
+	</div>
+</body>
+</html>`
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(html))
+	}
+}
+
 func main() {
 	// Check for version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
@@ -1856,6 +2261,7 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
+	http.HandleFunc("/admin", handleAdmin())
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
 	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification, config)))
