@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -8,11 +9,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	htmlpkg "html"
 	"io"
 	"log"
 	"math/big"
@@ -24,6 +27,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -84,6 +88,29 @@ func redactEmail(email string) string {
 		return "***@" + domain
 	}
 	return username[:min(2, len(username))] + "***@" + domain
+}
+
+// truncateStringUTF8 safely truncates a string to maxLen bytes while preserving UTF-8 character boundaries
+func truncateStringUTF8(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	// Ensure we don't cut in the middle of a UTF-8 character
+	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
+		maxLen--
+	}
+	return s[:maxLen] + "..."
+}
+
+// safeSubstring safely extracts a substring with length validation
+func safeSubstring(s string, start, end int) string {
+	if len(s) < end {
+		return s
+	}
+	if len(s) < start {
+		return ""
+	}
+	return s[start:end]
 }
 
 func min(a, b int) int {
@@ -173,6 +200,10 @@ type Config struct {
 	TiersConfigPath          string
 	ShutdownTimeout          time.Duration
 	RequireEmailVerification bool
+	WebhookURL               string
+	WebhookSecret            string
+	AdminUsername            string
+	AdminPassword            string
 }
 
 // LicenseData represents license information
@@ -212,6 +243,12 @@ type ActivationResponse struct {
 		MaxActivations int `json:"max_activations"`
 	} `json:"limits,omitempty"`
 	Error string `json:"error,omitempty"`
+}
+
+// ErrorResponse for generic errors
+type ErrorResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
 }
 
 // InitRequest for free tier onboarding
@@ -303,6 +340,10 @@ func loadConfig() *Config {
 		TiersConfigPath:          getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
 		ShutdownTimeout:          shutdownTimeout,
 		RequireEmailVerification: requireEmailVerification,
+		WebhookURL:               getEnv("WEBHOOK_URL", ""),
+		WebhookSecret:            getEnv("WEBHOOK_SECRET", ""),
+		AdminUsername:            getEnv("ADMIN_USERNAME", ""),
+		AdminPassword:            getEnv("ADMIN_PASSWORD", ""),
 	}
 }
 
@@ -348,6 +389,13 @@ func validateConfig(config *Config) error {
 	// Database configuration
 	if config.DatabaseURL == "" && config.DatabasePath == "" {
 		errors = append(errors, "Either DATABASE_URL (PostgreSQL) or DB_PATH (SQLite) must be set")
+	}
+
+	// Admin dashboard security (warning only)
+	if config.AdminUsername == "" || config.AdminPassword == "" {
+		log.Printf("⚠️  WARNING: Admin dashboard authentication not configured")
+		log.Printf("   Set ADMIN_USERNAME and ADMIN_PASSWORD to secure the /admin endpoint")
+		log.Printf("   Currently running in INSECURE mode - anyone can access /admin")
 	}
 
 	if len(errors) > 0 {
@@ -648,7 +696,7 @@ func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) h
 	}
 }
 
-func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
+func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool, config *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -762,6 +810,19 @@ expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
 
 		log.Printf("Created FREE license for %s: %s", redactEmail(req.Email), redactPII(licenseKey))
 
+		// Send webhook for license.created event
+		if config.WebhookURL != "" {
+			sendWebhook(config.WebhookURL, config.WebhookSecret, "license.created", map[string]interface{}{
+				"license_key":     licenseKey,
+				"customer_email":  req.Email,
+				"tier":            "free",
+				"daily_limit":     10,
+				"monthly_limit":   10,
+				"max_activations": 3,
+				"expires_at":      expiresAtLicense.Format(time.RFC3339),
+			})
+		}
+
 		resp := VerifyResponse{
 			Success:    true,
 			LicenseKey: licenseKey,
@@ -820,7 +881,7 @@ func validateProxyKey(proxyKey string) (licenseID, hardwareID string, err error)
 	return
 }
 
-func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
+func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -962,6 +1023,18 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				},
 			}
 			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
+
+			// Send webhook for activation event
+			if config.WebhookURL != "" {
+				sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+					"license_key":    req.LicenseKey,
+					"hardware_id":    req.HardwareID,
+					"customer_email": license.CustomerEmail,
+					"customer_name":  license.CustomerName,
+					"tier":           license.Tier,
+					"mode":           "proxy",
+				})
+			}
 		} else {
 			// Normal mode: encrypt the protected API key
 			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
@@ -989,6 +1062,18 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				},
 			}
 			log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
+
+			// Send webhook for activation event
+			if config.WebhookURL != "" {
+				sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+					"license_key":    req.LicenseKey,
+					"hardware_id":    req.HardwareID,
+					"customer_email": license.CustomerEmail,
+					"customer_name":  license.CustomerName,
+					"tier":           license.Tier,
+					"mode":           "direct",
+				})
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1055,6 +1140,7 @@ func getLicense(licenseID string) (*LicenseData, error) {
 	license.LicenseID = licenseID
 
 	var encryptionSalt sql.NullString
+	var expiresAtStr string
 
 	err := db.QueryRow(fmt.Sprintf(`
 SELECT customer_name, customer_email, tier, expires_at, 
@@ -1064,7 +1150,7 @@ FROM licenses WHERE license_id = %s
 		&license.CustomerName,
 		&license.CustomerEmail,
 		&license.Tier,
-		&license.ExpiresAt,
+		&expiresAtStr,
 		&license.Limits.DailyLimit,
 		&license.Limits.MonthlyLimit,
 		&license.Limits.MaxActivations,
@@ -1074,6 +1160,24 @@ FROM licenses WHERE license_id = %s
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("license not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Parse expires_at (handle both SQLite TEXT and PostgreSQL TIMESTAMP)
+	license.ExpiresAt, err = time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		// Try alternate formats for SQLite/Postgres TIMESTAMP (no timezone)
+		// ParseInLocation uses the local timezone to avoid UTC shift
+		license.ExpiresAt, err = time.ParseInLocation("2006-01-02 15:04:05", expiresAtStr, time.Local)
+		if err != nil {
+			// Try SQLite default format with timezone
+			license.ExpiresAt, err = time.Parse("2006-01-02 15:04:05.999999 -0700 MST", expiresAtStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse expires_at: %w", err)
+			}
+		}
 	}
 
 	// If no salt exists (legacy license), generate and store one
@@ -1256,7 +1360,7 @@ func generateSalt() (string, error) {
 func sendError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(ActivationResponse{
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
 		Success: false,
 		Error:   message,
 	})
@@ -1382,6 +1486,79 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	}
 
 	return nil
+}
+
+// sendWebhook sends event data to configured webhook URL (e.g., Zapier)
+func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interface{}) {
+	if webhookURL == "" {
+		return // Webhooks not configured
+	}
+
+	// Add event type and timestamp
+	payload := map[string]interface{}{
+		"event":     event,
+		"timestamp": time.Now().Unix(),
+		"data":      data,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Failed to marshal webhook payload: %v", err)
+		return
+	}
+
+	// Create request
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewReader(jsonData))
+	if err != nil {
+		log.Printf("Failed to create webhook request: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("Licensify/%s", Version))
+
+	// Add HMAC signature if secret is configured
+	if webhookSecret != "" {
+		mac := hmac.New(sha256.New, []byte(webhookSecret))
+		mac.Write(jsonData)
+		signature := hex.EncodeToString(mac.Sum(nil))
+		req.Header.Set("X-Webhook-Signature", signature)
+	}
+
+	// Send async (don't block main flow)
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+
+		var statusCode int
+		var errorMsg string
+
+		if err != nil {
+			log.Printf("Webhook delivery failed (%s): %v", event, err)
+			errorMsg = err.Error()
+		} else {
+			defer func() { _ = resp.Body.Close() }()
+			statusCode = resp.StatusCode
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				body, _ := io.ReadAll(resp.Body)
+				errorMsg = string(body)
+				log.Printf("Webhook returned error (%s): %d - %s", event, resp.StatusCode, body)
+			} else {
+				log.Printf("Webhook delivered successfully: %s", event)
+			}
+		}
+
+		// Log to database
+		_, err = db.Exec(fmt.Sprintf(`
+		INSERT INTO webhook_logs (event, payload, status_code, error)
+		VALUES (%s, %s, %s, %s)
+	`, sqlPlaceholder(1), sqlPlaceholder(2), sqlPlaceholder(3), sqlPlaceholder(4)),
+			event, string(jsonData), statusCode, errorMsg)
+		if err != nil {
+			log.Printf("Failed to log webhook to database: %v", err)
+		}
+	}()
 }
 
 // ProxyRequest handles proxying to external APIs
@@ -1706,6 +1883,427 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 	}
 }
 
+// basicAuthMiddleware checks HTTP Basic Authentication
+func basicAuthMiddleware(username, password string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Require both credentials to be configured
+		if username == "" || password == "" {
+			log.Printf("❌ ERROR: Admin dashboard authentication not configured! Set ADMIN_USERNAME and ADMIN_PASSWORD")
+			w.Header().Set("WWW-Authenticate", `Basic realm="Licensify Admin"`)
+			http.Error(w, "Admin authentication not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD environment variables.", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Check Basic Auth header
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != username || subtle.ConstantTimeCompare([]byte(pass), []byte(password)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Licensify Admin"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			log.Printf("⚠️  Failed admin login attempt from %s", r.RemoteAddr)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// handleAdmin serves a simple admin dashboard
+func handleAdmin() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get licenses
+		licenses, err := db.Query(`
+			SELECT license_id, customer_email, tier, expires_at, active, daily_limit, monthly_limit, max_activations, created_at
+			FROM licenses 
+			ORDER BY created_at DESC 
+			LIMIT 100
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			if err := licenses.Close(); err != nil {
+				log.Printf("Error closing licenses query: %v", err)
+			}
+		}()
+
+		type License struct {
+			ID           string
+			Email        string
+			Tier         string
+			ExpiresAt    string
+			Active       bool
+			DailyLimit   int
+			MonthlyLimit int
+			MaxDevices   int
+			CreatedAt    string
+		}
+		var licenseList []License
+		for licenses.Next() {
+			var l License
+			var active int
+			if isPostgresDB {
+				var activeBool bool
+				if err := licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &activeBool, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt); err != nil {
+					log.Printf("Error scanning license row: %v", err)
+					continue
+				}
+				l.Active = activeBool
+			} else {
+				if err := licenses.Scan(&l.ID, &l.Email, &l.Tier, &l.ExpiresAt, &active, &l.DailyLimit, &l.MonthlyLimit, &l.MaxDevices, &l.CreatedAt); err != nil {
+					log.Printf("Error scanning license row: %v", err)
+					continue
+				}
+				l.Active = active == 1
+			}
+			licenseList = append(licenseList, l)
+		}
+
+		// Get activations
+		activations, err := db.Query(`
+			SELECT a.license_id, a.hardware_id, a.activated_at, l.customer_email, l.tier
+			FROM activations a
+			JOIN licenses l ON a.license_id = l.license_id
+			ORDER BY a.activated_at DESC
+			LIMIT 100
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			if err := activations.Close(); err != nil {
+				log.Printf("Error closing activations query: %v", err)
+			}
+		}()
+
+		type Activation struct {
+			LicenseID   string
+			HardwareID  string
+			ActivatedAt string
+			Email       string
+			Tier        string
+		}
+		var activationList []Activation
+		for activations.Next() {
+			var a Activation
+			if err := activations.Scan(&a.LicenseID, &a.HardwareID, &a.ActivatedAt, &a.Email, &a.Tier); err != nil {
+				log.Printf("Error scanning activation row: %v", err)
+				continue
+			}
+			activationList = append(activationList, a)
+		}
+
+		// Get webhook logs
+		webhookLogs, err := db.Query(`
+			SELECT event, payload, status_code, error, created_at
+			FROM webhook_logs
+			ORDER BY created_at DESC
+			LIMIT 50
+		`)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			if err := webhookLogs.Close(); err != nil {
+				log.Printf("Error closing webhookLogs query: %v", err)
+			}
+		}()
+
+		type WebhookLog struct {
+			Event      string
+			Payload    string
+			StatusCode int
+			Error      string
+			CreatedAt  string
+		}
+		var webhookList []WebhookLog
+		for webhookLogs.Next() {
+			var wl WebhookLog
+			var statusCode sql.NullInt64
+			var errorMsg sql.NullString
+			if err := webhookLogs.Scan(&wl.Event, &wl.Payload, &statusCode, &errorMsg, &wl.CreatedAt); err != nil {
+				log.Printf("Error scanning webhook log row: %v", err)
+				continue
+			}
+			if statusCode.Valid {
+				wl.StatusCode = int(statusCode.Int64)
+			}
+			if errorMsg.Valid {
+				wl.Error = errorMsg.String
+			}
+			webhookList = append(webhookList, wl)
+		}
+
+		// Render HTML
+		html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Licensify Admin Dashboard</title>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body { 
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: #f5f5f5;
+			padding: 20px;
+		}
+		.container { max-width: 1400px; margin: 0 auto; }
+		h1 { color: #333; margin-bottom: 30px; }
+		.stats {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 20px;
+			margin-bottom: 30px;
+		}
+		.stat-card {
+			background: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		}
+		.stat-number { font-size: 36px; font-weight: bold; color: #4a90e2; }
+		.stat-label { color: #666; margin-top: 5px; }
+		.section {
+			background: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+			margin-bottom: 30px;
+		}
+		h2 {
+			color: #333;
+			margin-bottom: 15px;
+			padding-bottom: 10px;
+			border-bottom: 2px solid #4a90e2;
+		}
+		table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+		th {
+			background: #f8f9fa;
+			padding: 12px;
+			text-align: left;
+			font-weight: 600;
+			color: #333;
+			border-bottom: 2px solid #dee2e6;
+		}
+		td {
+			padding: 12px;
+			border-bottom: 1px solid #dee2e6;
+		}
+		tr:hover { background: #f8f9fa; }
+		.badge {
+			display: inline-block;
+			padding: 4px 8px;
+			border-radius: 4px;
+			font-size: 12px;
+			font-weight: 600;
+		}
+		.badge-active { background: #d4edda; color: #155724; }
+		.badge-inactive { background: #f8d7da; color: #721c24; }
+		.badge-success { background: #d4edda; color: #155724; }
+		.badge-error { background: #f8d7da; color: #721c24; }
+		.badge-free { background: #e7f3ff; color: #004085; }
+		.badge-pro { background: #fff3cd; color: #856404; }
+		.mono { font-family: monospace; font-size: 13px; }
+		.truncate {
+			max-width: 300px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		code {
+			background: #f4f4f4;
+			padding: 2px 6px;
+			border-radius: 3px;
+			font-size: 12px;
+		}
+		.timestamp { color: #666; font-size: 13px; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>🚀 Licensify Admin Dashboard</h1>
+		
+		<div class="stats">
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(licenseList)) + `</div>
+				<div class="stat-label">Total Licenses</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(activationList)) + `</div>
+				<div class="stat-label">Active Devices</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-number">` + fmt.Sprintf("%d", len(webhookList)) + `</div>
+				<div class="stat-label">Webhook Events</div>
+			</div>
+		</div>
+
+		<div class="section">
+			<h2>📜 Recent Licenses</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>License Key</th>
+						<th>Email</th>
+						<th>Tier</th>
+						<th>Limits</th>
+						<th>Status</th>
+						<th>Expires</th>
+						<th>Created</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		for _, l := range licenseList {
+			statusBadge := `<span class="badge badge-active">Active</span>`
+			if !l.Active {
+				statusBadge = `<span class="badge badge-inactive">Inactive</span>`
+			}
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, htmlpkg.EscapeString(l.Tier), htmlpkg.EscapeString(strings.ToUpper(l.Tier)))
+
+			html += fmt.Sprintf(`
+					<tr>
+						<td><code class="mono">%s</code></td>
+						<td>%s</td>
+						<td>%s</td>
+						<td>%d/%d daily, %d devices</td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				htmlpkg.EscapeString(truncateStringUTF8(l.ID, 20)),
+				htmlpkg.EscapeString(l.Email),
+				tierBadge,
+				l.DailyLimit,
+				l.MonthlyLimit,
+				l.MaxDevices,
+				statusBadge,
+				htmlpkg.EscapeString(safeSubstring(l.ExpiresAt, 0, 10)),
+				htmlpkg.EscapeString(safeSubstring(l.CreatedAt, 0, 19)),
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div class="section">
+			<h2>💻 Active Devices</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>License Key</th>
+						<th>Hardware ID</th>
+						<th>Email</th>
+						<th>Tier</th>
+						<th>Activated At</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		for _, a := range activationList {
+			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, htmlpkg.EscapeString(a.Tier), htmlpkg.EscapeString(strings.ToUpper(a.Tier)))
+			html += fmt.Sprintf(`
+					<tr>
+						<td><code class="mono">%s</code></td>
+						<td class="truncate mono">%s</td>
+						<td>%s</td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				htmlpkg.EscapeString(truncateStringUTF8(a.LicenseID, 20)),
+				htmlpkg.EscapeString(a.HardwareID),
+				htmlpkg.EscapeString(a.Email),
+				tierBadge,
+				htmlpkg.EscapeString(safeSubstring(a.ActivatedAt, 0, 19)),
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div class="section">
+			<h2>🔔 Webhook Logs</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>Event</th>
+						<th>Status</th>
+						<th>Payload</th>
+						<th>Error</th>
+						<th>Timestamp</th>
+					</tr>
+				</thead>
+				<tbody>`
+
+		if len(webhookList) == 0 {
+			html += `
+					<tr>
+						<td colspan="5" style="text-align: center; color: #999; padding: 30px;">
+							No webhook events yet. Configure WEBHOOK_URL to start receiving events.
+						</td>
+					</tr>`
+		}
+
+		for _, wl := range webhookList {
+			statusBadge := `<span class="badge badge-success">` + fmt.Sprintf("%d", wl.StatusCode) + `</span>`
+			if wl.StatusCode == 0 || wl.StatusCode >= 400 {
+				statusBadge = `<span class="badge badge-error">Failed</span>`
+			}
+
+			errorText := "-"
+			if wl.Error != "" {
+				errorText = `<span style="color: #dc3545;">` + htmlpkg.EscapeString(truncateStringUTF8(wl.Error, 50)) + `</span>`
+			}
+
+			html += fmt.Sprintf(`
+					<tr>
+						<td><strong>%s</strong></td>
+						<td>%s</td>
+						<td class="truncate" title="%s"><code>%s</code></td>
+						<td>%s</td>
+						<td class="timestamp">%s</td>
+					</tr>`,
+				htmlpkg.EscapeString(wl.Event),
+				statusBadge,
+				htmlpkg.EscapeString(wl.Payload),
+				htmlpkg.EscapeString(truncateStringUTF8(wl.Payload, 60)),
+				errorText,
+				htmlpkg.EscapeString(safeSubstring(wl.CreatedAt, 0, 19)),
+			)
+		}
+
+		html += `
+				</tbody>
+			</table>
+		</div>
+
+		<div style="text-align: center; color: #999; padding: 20px;">
+			<p>Licensify v` + Version + ` • Built at ` + BuildTime + `</p>
+		</div>
+	</div>
+</body>
+</html>`
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(html))
+	}
+}
+
 func main() {
 	// Check for version flag
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
@@ -1761,10 +2359,11 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
+	http.HandleFunc("/admin", rateLimitMiddleware(basicAuthMiddleware(config.AdminUsername, config.AdminPassword, handleAdmin())))
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
-	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
-	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
+	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification, config)))
+	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode, config)))
 	http.HandleFunc("/check", rateLimitMiddleware(handleCheck()))
 	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))
 

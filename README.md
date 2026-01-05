@@ -65,9 +65,35 @@ Licensify solves both in one self-hosted deployment:
 - 🐳 **Docker Ready**: Multi-arch builds (amd64/arm64)
 - 📡 **RESTful API**: Simple HTTP endpoints
 
-## Quick Start
+## 🚀 5-Minute Quickstart
 
-### Architecture Overview
+**Get Licensify running in 5 minutes:**
+
+```bash
+# 1. Clone and build
+git clone https://github.com/yourusername/licensify
+cd licensify
+make build
+
+# 2. Generate keys
+make keygen
+
+# 3. Set up environment
+cp .env.example .env
+# Edit .env with your keys
+
+# 4. Run with Docker
+docker-compose up -d
+
+# 5. Test it works
+curl http://localhost:8080/health
+```
+
+**Done!** Your licensing server is live at `http://localhost:8080`
+
+---
+
+## Architecture Overview
 
 ```mermaid
 graph TB
@@ -648,6 +674,41 @@ DATABASE_URL=postgresql://user:pass@host:5432/licensify ./licensify
 ```
 
 Tables are created automatically on first run.
+
+## Admin Dashboard
+
+Licensify includes a web-based admin dashboard at `/admin` for monitoring licenses, activations, and webhook events.
+
+**Access:**
+```bash
+# Visit in browser
+http://localhost:8080/admin
+
+# Login with credentials from .env
+Username: admin
+Password: your-secure-password
+```
+
+**Features:**
+- 📊 **Stats Overview**: Total licenses, active devices, webhook events
+- 📜 **License Management**: View all licenses with status, limits, and expiry
+- 💻 **Device Tracking**: See which devices have activated licenses
+- 🔔 **Webhook Logs**: Monitor webhook delivery status and payloads
+
+**Security:**
+```bash
+# Set credentials in .env (REQUIRED for production)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-secure-password
+
+# Without credentials, dashboard shows security warning
+# Development mode: Anyone can access /admin
+```
+
+**Important:** The admin dashboard uses HTTP Basic Authentication. For production deployments, ensure:
+- Strong password set via `ADMIN_PASSWORD`
+- HTTPS enabled (required for secure basic auth)
+- Consider adding IP whitelisting via reverse proxy
 
 ## Database Management
 

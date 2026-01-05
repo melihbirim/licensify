@@ -50,3 +50,15 @@ CREATE TABLE IF NOT EXISTS proxy_keys (
 	anthropic_key TEXT,
 	created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS webhook_logs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	event TEXT NOT NULL,
+	payload TEXT NOT NULL,
+	status_code INTEGER,
+	error TEXT,
+	created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_webhook_logs_created_at ON webhook_logs(created_at);
