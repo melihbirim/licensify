@@ -1499,17 +1499,17 @@ func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interf
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
-		
+
 		var statusCode int
 		var errorMsg string
-		
+
 		if err != nil {
 			log.Printf("Webhook delivery failed (%s): %v", event, err)
 			errorMsg = err.Error()
 		} else {
 			defer func() { _ = resp.Body.Close() }()
 			statusCode = resp.StatusCode
-			
+
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				body, _ := io.ReadAll(resp.Body)
 				errorMsg = string(body)
@@ -1518,7 +1518,7 @@ func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interf
 				log.Printf("Webhook delivered successfully: %s", event)
 			}
 		}
-		
+
 		// Log to database
 		_, _ = db.Exec(fmt.Sprintf(`
 			INSERT INTO webhook_logs (event, payload, status_code, error)
@@ -2113,7 +2113,7 @@ func handleAdmin() http.HandlerFunc {
 				statusBadge = `<span class="badge badge-inactive">Inactive</span>`
 			}
 			tierBadge := fmt.Sprintf(`<span class="badge badge-%s">%s</span>`, l.Tier, strings.ToUpper(l.Tier))
-			
+
 			html += fmt.Sprintf(`
 					<tr>
 						<td><code class="mono">%s</code></td>
@@ -2206,7 +2206,7 @@ func handleAdmin() http.HandlerFunc {
 			if wl.StatusCode == 0 || wl.StatusCode >= 400 {
 				statusBadge = `<span class="badge badge-error">Failed</span>`
 			}
-			
+
 			errorText := "-"
 			if wl.Error != "" {
 				errorText = `<span style="color: #dc3545;">` + wl.Error[:min(50, len(wl.Error))] + `...</span>`
