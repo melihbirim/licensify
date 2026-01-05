@@ -175,6 +175,8 @@ type Config struct {
 	RequireEmailVerification bool
 	WebhookURL               string
 	WebhookSecret            string
+	AdminUsername            string
+	AdminPassword            string
 }
 
 // LicenseData represents license information
@@ -307,6 +309,8 @@ func loadConfig() *Config {
 		RequireEmailVerification: requireEmailVerification,
 		WebhookURL:               getEnv("WEBHOOK_URL", ""),
 		WebhookSecret:            getEnv("WEBHOOK_SECRET", ""),
+		AdminUsername:            getEnv("ADMIN_USERNAME", ""),
+		AdminPassword:            getEnv("ADMIN_PASSWORD", ""),
 	}
 }
 
@@ -1833,6 +1837,29 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 	}
 }
 
+// basicAuthMiddleware checks HTTP Basic Authentication
+func basicAuthMiddleware(username, password string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// If credentials not configured, allow access (development mode)
+		if username == "" || password == "" {
+			log.Printf("⚠️  WARNING: Admin dashboard has no authentication! Set ADMIN_USERNAME and ADMIN_PASSWORD")
+			next(w, r)
+			return
+		}
+
+		// Check Basic Auth header
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != username || pass != password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Licensify Admin"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			log.Printf("⚠️  Failed admin login attempt from %s", r.RemoteAddr)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 // handleAdmin serves a simple admin dashboard
 func handleAdmin() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -2261,7 +2288,7 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
-	http.HandleFunc("/admin", handleAdmin())
+	http.HandleFunc("/admin", basicAuthMiddleware(config.AdminUsername, config.AdminPassword, handleAdmin()))
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
 	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification, config)))
