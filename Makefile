@@ -133,6 +133,15 @@ docker-build: ## Build Docker image
 docker-run: ## Run Docker container
 	docker run -p 8080:8080 --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
 
+docker-up: ## Start services with Docker Compose (one-command deploy)
+	docker-compose up -d
+
+docker-down: ## Stop Docker Compose services
+	docker-compose down
+
+docker-logs: ## View Docker Compose logs
+	docker-compose logs -f
+
 docker-build-multi: ## Build multi-arch Docker image (amd64 + arm64)
 	@echo "Building multi-arch Docker image..."
 	docker buildx build \

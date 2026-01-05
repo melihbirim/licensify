@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  licensify:
+    build: .
+    container_name: licensify
+    ports:
+      - "8080:8080"
+    environment:
+      # Server
+      - PORT=8080
+      - SHUTDOWN_TIMEOUT=30s
+      
+      # Database (SQLite by default - change to PostgreSQL for production)
+      - DB_TYPE=sqlite
+      - DB_PATH=/data/licensify.db
+      # For PostgreSQL, uncomment:
+      # - DATABASE_URL=postgresql://licensify:password@postgres:5432/licensify?sslmode=disable
+      
+      # Security (REQUIRED - generate with: make keygen)
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      
+      # Operation Mode (choose one)
+      - PROXY_MODE=${PROXY_MODE:-false}
+      
+      # For Direct Mode:
+      - PROTECTED_API_KEY=${PROTECTED_API_KEY}
+      
+      # For Proxy Mode:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      
+      # Email (optional - for free tier verification)
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - FROM_EMAIL=${FROM_EMAIL}
+      - REQUIRE_EMAIL_VERIFICATION=${REQUIRE_EMAIL_VERIFICATION:-false}
+      
+      # Webhooks (optional - for Zapier/integrations)
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+    volumes:
+      - licensify-data:/data
+      - ./tiers.toml:/root/tiers.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL (uncomment for production)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: licensify-db
+  #   environment:
+  #     - POSTGRES_DB=licensify
+  #     - POSTGRES_USER=licensify
+  #     - POSTGRES_PASSWORD=change_this_password
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U licensify"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  licensify-data:
+    driver: local
+  # postgres-data:
+  #   driver: local
+
+networks:
+  default:
+    name: licensify-network

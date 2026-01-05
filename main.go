@@ -173,6 +173,8 @@ type Config struct {
 	TiersConfigPath          string
 	ShutdownTimeout          time.Duration
 	RequireEmailVerification bool
+	WebhookURL               string
+	WebhookSecret            string
 }
 
 // LicenseData represents license information
@@ -303,6 +305,8 @@ func loadConfig() *Config {
 		TiersConfigPath:          getEnv("TIERS_CONFIG_PATH", "tiers.toml"),
 		ShutdownTimeout:          shutdownTimeout,
 		RequireEmailVerification: requireEmailVerification,
+		WebhookURL:               getEnv("WEBHOOK_URL", ""),
+		WebhookSecret:            getEnv("WEBHOOK_SECRET", ""),
 	}
 }
 
@@ -648,7 +652,7 @@ func handleInit(resendAPIKey, fromEmail string, requireEmailVerification bool) h
 	}
 }
 
-func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool) http.HandlerFunc {
+func handleVerify(resendAPIKey, fromEmail string, requireEmailVerification bool, config *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -762,6 +766,19 @@ expires_at, daily_limit, monthly_limit, max_activations, active, encryption_salt
 
 		log.Printf("Created FREE license for %s: %s", redactEmail(req.Email), redactPII(licenseKey))
 
+		// Send webhook for license.created event
+		if config.WebhookURL != "" {
+			go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.created", map[string]interface{}{
+				"license_key":     licenseKey,
+				"customer_email":  req.Email,
+				"tier":            "free",
+				"daily_limit":     10,
+				"monthly_limit":   10,
+				"max_activations": 3,
+				"expires_at":      expiresAtLicense.Format(time.RFC3339),
+			})
+		}
+
 		resp := VerifyResponse{
 			Success:    true,
 			LicenseKey: licenseKey,
@@ -820,7 +837,7 @@ func validateProxyKey(proxyKey string) (licenseID, hardwareID string, err error)
 	return
 }
 
-func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
+func handleActivation(protectedAPIKey string, proxyMode bool, config *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -962,6 +979,16 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				},
 			}
 			log.Printf("✅ Activation successful for %s (proxy mode - generated key: %s...)", redactPII(req.LicenseKey), proxyKey[:10])
+			
+			// Send webhook for activation event
+			sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+				"license_key":    req.LicenseKey,
+				"hardware_id":    req.HardwareID,
+				"customer_email": license.CustomerEmail,
+				"customer_name":  license.CustomerName,
+				"tier":           license.Tier,
+				"mode":           "proxy",
+			})
 		} else {
 			// Normal mode: encrypt the protected API key
 			encryptedData, iv, err := encryptAPIKeyBundle(protectedAPIKey, license, req.LicenseKey, req.HardwareID)
@@ -979,20 +1006,32 @@ func handleActivation(protectedAPIKey string, proxyMode bool) http.HandlerFunc {
 				EncryptedAPIKey: encryptedData,
 				IV:              iv,
 				Limits: struct {
-					DailyLimit     int `json:"daily_limit"`
-					MonthlyLimit   int `json:"monthly_limit"`
-					MaxActivations int `json:"max_activations"`
-				}{
-					DailyLimit:     license.Limits.DailyLimit,
-					MonthlyLimit:   license.Limits.MonthlyLimit,
-					MaxActivations: license.Limits.MaxActivations,
-				},
-			}
-			log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
+				DailyLimit     int `json:"daily_limit"`
+				MonthlyLimit   int `json:"monthly_limit"`
+				MaxActivations int `json:"max_activations"`
+			}{
+				DailyLimit:     license.Limits.DailyLimit,
+				MonthlyLimit:   license.Limits.MonthlyLimit,
+				MaxActivations: license.Limits.MaxActivations,
+			},
 		}
+		log.Printf("✅ Activation successful for %s", redactPII(req.LicenseKey))
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		// Send webhook for activation event
+		if config.WebhookURL != "" {
+			go sendWebhook(config.WebhookURL, config.WebhookSecret, "license.activated", map[string]interface{}{
+				"license_key":    req.LicenseKey,
+				"hardware_id":    req.HardwareID,
+				"customer_email": license.CustomerEmail,
+				"customer_name":  license.CustomerName,
+				"tier":           license.Tier,
+				"mode":           "direct",
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
@@ -1384,6 +1423,62 @@ func sendResendEmail(apiKey, fromEmail, toEmail, subject, html string) error {
 	return nil
 }
 
+// sendWebhook sends event data to configured webhook URL (e.g., Zapier)
+func sendWebhook(webhookURL, webhookSecret, event string, data map[string]interface{}) {
+	if webhookURL == "" {
+		return // Webhooks not configured
+	}
+
+	// Add event type and timestamp
+	payload := map[string]interface{}{
+		"event":     event,
+		"timestamp": time.Now().Unix(),
+		"data":      data,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Failed to marshal webhook payload: %v", err)
+		return
+	}
+
+	// Create request
+	req, err := http.NewRequest("POST", webhookURL, strings.NewReader(string(jsonData)))
+	if err != nil {
+		log.Printf("Failed to create webhook request: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("Licensify/%s", Version))
+
+	// Add HMAC signature if secret is configured
+	if webhookSecret != "" {
+		mac := hmac.New(sha256.New, []byte(webhookSecret))
+		mac.Write(jsonData)
+		signature := hex.EncodeToString(mac.Sum(nil))
+		req.Header.Set("X-Webhook-Signature", signature)
+	}
+
+	// Send async (don't block main flow)
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Webhook delivery failed (%s): %v", event, err)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("Webhook returned error (%s): %d - %s", event, resp.StatusCode, body)
+		} else {
+			log.Printf("Webhook delivered successfully: %s", event)
+		}
+	}()
+}
+
 // ProxyRequest handles proxying to external APIs
 type ProxyRequest struct {
 	ProxyKey  string          `json:"proxy_key"` // Generated proxy key from activation
@@ -1763,8 +1858,8 @@ func main() {
 	http.HandleFunc("/health", handleHealth)
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
-	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
-	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode)))
+	http.HandleFunc("/verify", rateLimitMiddleware(handleVerify(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification, config)))
+	http.HandleFunc("/activate", rateLimitMiddleware(handleActivation(config.ProtectedAPIKey, config.ProxyMode, config)))
 	http.HandleFunc("/check", rateLimitMiddleware(handleCheck()))
 	http.HandleFunc("/usage", rateLimitMiddleware(handleUsageReport()))
 

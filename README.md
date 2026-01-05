@@ -65,9 +65,35 @@ Licensify solves both in one self-hosted deployment:
 - 🐳 **Docker Ready**: Multi-arch builds (amd64/arm64)
 - 📡 **RESTful API**: Simple HTTP endpoints
 
-## Quick Start
+## 🚀 5-Minute Quickstart
 
-### Architecture Overview
+**Get Licensify running in 5 minutes:**
+
+```bash
+# 1. Clone and build
+git clone https://github.com/yourusername/licensify
+cd licensify
+make build
+
+# 2. Generate keys
+make keygen
+
+# 3. Set up environment
+cp .env.example .env
+# Edit .env with your keys
+
+# 4. Run with Docker
+docker-compose up -d
+
+# 5. Test it works
+curl http://localhost:8080/health
+```
+
+**Done!** Your licensing server is live at `http://localhost:8080`
+
+---
+
+## Architecture Overview
 
 ```mermaid
 graph TB
