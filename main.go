@@ -1165,8 +1165,9 @@ FROM licenses WHERE license_id = %s
 	// Parse expires_at (handle both SQLite TEXT and PostgreSQL TIMESTAMP)
 	license.ExpiresAt, err = time.Parse(time.RFC3339, expiresAtStr)
 	if err != nil {
-		// Try alternate formats for SQLite
-		license.ExpiresAt, err = time.Parse("2006-01-02 15:04:05", expiresAtStr)
+		// Try alternate formats for SQLite/Postgres TIMESTAMP (no timezone)
+		// ParseInLocation uses the local timezone to avoid UTC shift
+		license.ExpiresAt, err = time.ParseInLocation("2006-01-02 15:04:05", expiresAtStr, time.Local)
 		if err != nil {
 			// Try SQLite default format with timezone
 			license.ExpiresAt, err = time.Parse("2006-01-02 15:04:05.999999 -0700 MST", expiresAtStr)
@@ -1882,10 +1883,11 @@ func handleProxy(openaiKey, anthropicKey string) http.HandlerFunc {
 // basicAuthMiddleware checks HTTP Basic Authentication
 func basicAuthMiddleware(username, password string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// If credentials not configured, allow access (development mode)
+		// Require both credentials to be configured
 		if username == "" || password == "" {
-			log.Printf("⚠️  WARNING: Admin dashboard has no authentication! Set ADMIN_USERNAME and ADMIN_PASSWORD")
-			next(w, r)
+			log.Printf("❌ ERROR: Admin dashboard authentication not configured! Set ADMIN_USERNAME and ADMIN_PASSWORD")
+			w.Header().Set("WWW-Authenticate", `Basic realm="Licensify Admin"`)
+			http.Error(w, "Admin authentication not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD environment variables.", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -2177,7 +2179,7 @@ func handleAdmin() http.HandlerFunc {
 						<td class="timestamp">%s</td>
 						<td class="timestamp">%s</td>
 					</tr>`,
-				htmlpkg.EscapeString(truncateStringUTF8(l.ID, 20)+"..."),
+				htmlpkg.EscapeString(truncateStringUTF8(l.ID, 20)),
 				htmlpkg.EscapeString(l.Email),
 				tierBadge,
 				l.DailyLimit,
@@ -2218,7 +2220,7 @@ func handleAdmin() http.HandlerFunc {
 						<td>%s</td>
 						<td class="timestamp">%s</td>
 					</tr>`,
-				htmlpkg.EscapeString(truncateStringUTF8(a.LicenseID, 20)+"..."),
+				htmlpkg.EscapeString(truncateStringUTF8(a.LicenseID, 20)),
 				htmlpkg.EscapeString(a.HardwareID),
 				htmlpkg.EscapeString(a.Email),
 				tierBadge,
@@ -2262,7 +2264,7 @@ func handleAdmin() http.HandlerFunc {
 
 			errorText := "-"
 			if wl.Error != "" {
-				errorText = `<span style="color: #dc3545;">` + htmlpkg.EscapeString(truncateStringUTF8(wl.Error, 50)+"...") + `</span>`
+				errorText = `<span style="color: #dc3545;">` + htmlpkg.EscapeString(truncateStringUTF8(wl.Error, 50)) + `</span>`
 			}
 
 			html += fmt.Sprintf(`
@@ -2276,7 +2278,7 @@ func handleAdmin() http.HandlerFunc {
 				htmlpkg.EscapeString(wl.Event),
 				statusBadge,
 				htmlpkg.EscapeString(wl.Payload),
-				htmlpkg.EscapeString(truncateStringUTF8(wl.Payload, 60)+"..."),
+				htmlpkg.EscapeString(truncateStringUTF8(wl.Payload, 60)),
 				errorText,
 				htmlpkg.EscapeString(safeSubstring(wl.CreatedAt, 0, 19)),
 			)
