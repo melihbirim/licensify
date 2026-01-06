@@ -11,10 +11,9 @@ services:
       - PORT=8080
       - SHUTDOWN_TIMEOUT=30s
       
-      # Database (SQLite by default - change to PostgreSQL for production)
-      - DB_PATH=/data/licensify.db
-      # For PostgreSQL, uncomment:
-      # - DATABASE_URL=postgresql://licensify:password@postgres:5432/licensify?sslmode=disable
+      # Database (PostgreSQL for production)
+      # - DB_PATH=/data/licensify.db  # SQLite (for testing only)
+      - DATABASE_URL=postgresql://licensify:${POSTGRES_PASSWORD:-licensify123}@postgres:5432/licensify?sslmode=disable
       
       # Security (REQUIRED - generate with: make keygen)
       - PRIVATE_KEY=${PRIVATE_KEY}
@@ -31,19 +30,22 @@ services:
       
       # Email (optional - for free tier verification)
       - RESEND_API_KEY=${RESEND_API_KEY}
-      - FROM_EMAIL=${FROM_EMAIL}
+      - FROM_EMAIL=${FROM_EMAIL:-noreply@example.com}
       - REQUIRE_EMAIL_VERIFICATION=${REQUIRE_EMAIL_VERIFICATION:-false}
       
       # Admin Dashboard Security (REQUIRED - set strong password in .env)
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ERROR: ADMIN_PASSWORD must be set in .env file}
       
-      # Webhooks (optional - for Zapier/integrations)
+      # Webhooks (optional - for Zapier/Make/n8n integrations)
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
     volumes:
       - licensify-data:/data
       - ./tiers.toml:/root/tiers.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -52,29 +54,45 @@ services:
       retries: 3
       start_period: 40s
 
-  # PostgreSQL (uncomment for production)
-  # postgres:
-  #   image: postgres:15-alpine
-  #   container_name: licensify-db
-  #   environment:
-  #     - POSTGRES_DB=licensify
-  #     - POSTGRES_USER=licensify
-  #     - POSTGRES_PASSWORD=change_this_password
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U licensify"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: licensify-db
+    environment:
+      - POSTGRES_DB=licensify
+      - POSTGRES_USER=licensify
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-licensify123}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Expose for local development (remove in production)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U licensify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Adminer - Database Management UI
+  adminer:
+    image: adminer:latest
+    container_name: licensify-adminer
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=hydra  # Modern dark theme
+    depends_on:
+      - postgres
+    restart: unless-stopped
 
 volumes:
   licensify-data:
     driver: local
-  # postgres-data:
-  #   driver: local
+  postgres-data:
+    driver: local
 
 networks:
   default:
     name: licensify-network
+

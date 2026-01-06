@@ -500,6 +500,23 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleVersion returns version information in JSON format
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]string{
+		"version": Version,
+		"commit":  GitCommit,
+		"built":   BuildTime,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 // TierInfo represents public tier information
 type TierInfo struct {
 	Name                      string   `json:"name"`
@@ -2359,6 +2376,7 @@ func main() {
 
 	// Setup HTTP routes with rate limiting
 	http.HandleFunc("/health", handleHealth)
+	http.HandleFunc("/version", handleVersion)
 	http.HandleFunc("/admin", rateLimitMiddleware(basicAuthMiddleware(config.AdminUsername, config.AdminPassword, handleAdmin())))
 	http.HandleFunc("/tiers", handleTiers)
 	http.HandleFunc("/init", rateLimitMiddleware(handleInit(config.ResendAPIKey, config.FromEmail, config.RequireEmailVerification)))
