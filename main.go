@@ -396,6 +396,17 @@ func validateConfig(config *Config) error {
 		log.Printf("⚠️  WARNING: Admin dashboard authentication not configured")
 		log.Printf("   Set ADMIN_USERNAME and ADMIN_PASSWORD to secure the /admin endpoint")
 		log.Printf("   Currently running in INSECURE mode - anyone can access /admin")
+	} else {
+		// Validate password strength
+		if len(config.AdminPassword) < 8 {
+			errors = append(errors, "ADMIN_PASSWORD must be at least 8 characters long")
+		}
+		if config.AdminPassword == "admin" || config.AdminPassword == "password" || config.AdminPassword == "12345678" {
+			errors = append(errors, "ADMIN_PASSWORD is too weak - please use a strong, unique password")
+		}
+		if config.AdminUsername == config.AdminPassword {
+			errors = append(errors, "ADMIN_PASSWORD must be different from ADMIN_USERNAME")
+		}
 	}
 
 	if len(errors) > 0 {

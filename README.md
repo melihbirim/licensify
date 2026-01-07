@@ -165,8 +165,8 @@ curl -X POST http://localhost:8080/verify \
   "license_key": "LIC-202601-FREE-123456",
   "tier": "free",
   "expires_at": "2027-01-06T00:00:00Z",
-  "daily_limit": 100,
-  "monthly_limit": 3000
+  "daily_limit": 10,
+  "monthly_limit": 10
 }
 ```
 
@@ -193,8 +193,8 @@ curl -X POST http://localhost:8080/activate \
   "encrypted_api_key": "base64_encrypted_data_here...",
   "iv": "base64_iv_here...",
   "limits": {
-    "daily_limit": 100,
-    "monthly_limit": 3000
+    "daily_limit": 10,
+    "monthly_limit": 10
   }
 }
 ```
@@ -205,8 +205,8 @@ curl -X POST http://localhost:8080/activate \
   "success": true,
   "encrypted_api_key": "px_your_proxy_key_here",
   "limits": {
-    "daily_limit": 100,
-    "monthly_limit": 3000
+    "daily_limit": 10,
+    "monthly_limit": 10
   }
 }
 ```
@@ -281,10 +281,10 @@ curl -X POST http://localhost:8080/check \
 {
   "valid": true,
   "tier": "free",
-  "usage_today": 45,
-  "daily_limit": 100,
-  "usage_this_month": 1234,
-  "monthly_limit": 3000,
+  "usage_today": 5,
+  "daily_limit": 10,
+  "usage_this_month": 8,
+  "monthly_limit": 10,
   "expires_at": "2027-01-06T00:00:00Z"
 }
 ```
@@ -319,7 +319,7 @@ Default tiers from `tiers.toml`:
 
 | Tier | Daily Limit | Monthly Limit | Max Devices | Price |
 |------|-------------|---------------|-------------|-------|
-| **free** | 100 | 3,000 | 1 | Free |
+| **free** | 10 | 10 | 1 | Free |
 | **pro** | 1,000 | 30,000 | 3 | $29/mo |
 | **enterprise** | 10,000 | Unlimited | 10 | $299/mo |
 
