@@ -1,3 +1,18 @@
+> ## ⚠️ This project is archived
+>
+> **Status:** archived on 2026-10-11. No further development, no support, no releases.
+>
+> Licensify was built by its author for a single personal use case and never reached outside users. It is kept public as a reference only.
+>
+> **Known state at archive time** (from a full review and a live run of the server):
+> - Proxy-mode activation and the `/usage` endpoint fail on a fresh install because `sql/*/init.sql` does not match the columns the code expects (`proxy_keys.hardware_id`, `daily_usage.scans`).
+> - The Docker image does not include the `sql/` directory, so the container cannot initialise its database.
+> - The Ed25519 "license signing" described below is not implemented; the key is loaded and unused.
+> - There are no automated tests. CI on `main` has been red since January 2026.
+> - Direct mode delivers the decrypted API key to the client and does not protect it against reverse engineering.
+>
+> If you want a maintained alternative, look at Keygen, Paperkey, Cryptlex or LicenseSpring for licensing, and LiteLLM, Portkey or Cloudflare AI Gateway for AI key gating and budgets.
+
 # Licensify
 
 **The only licensing server that protects your AI API keys.**
